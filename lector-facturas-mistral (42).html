@@ -1,0 +1,1743 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lector Inteligente de Facturas</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=Inconsolata:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #ffffff;
+    --surface: #f7f9ff;
+    --surface2: #eef2ff;
+    --border: #dde3f5;
+    --ink: #071f9e;
+    --ink-light: #5060b8;
+    --accent: #f9c12f;
+    --accent-dark: #d9a828;
+    --good: #1a9e5c;
+    --warn: #e07b00;
+    --bad: #d93025;
+    --sidebar: #071f9e;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--ink); font-family: 'Inconsolata', monospace; min-height: 100vh; }
+  .layout { display: grid; grid-template-columns: 300px 1fr; min-height: 100vh; }
+
+  /* SIDEBAR */
+  .sidebar { background: var(--sidebar); color: white; padding: 32px 28px; display: flex; flex-direction: column; position: sticky; top: 0; height: 100vh; overflow-y: auto; }
+
+  /* API KEY */
+  .apikey-section { margin-bottom: 20px; }
+  .apikey-label { font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; color: rgba(255,255,255,0.4); margin-bottom: 8px; display: block; }
+  .apikey-wrap { display: flex; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; overflow: hidden; }
+  .apikey-input { flex: 1; background: rgba(255,255,255,0.08); border: none; padding: 10px 12px; font-family: 'Inconsolata', monospace; font-size: 11px; color: white; outline: none; min-width: 0; }
+  .apikey-input::placeholder { color: rgba(255,255,255,0.25); }
+  .apikey-toggle { background: rgba(255,255,255,0.1); border: none; border-left: 1px solid rgba(255,255,255,0.15); color: rgba(255,255,255,0.5); padding: 0 12px; cursor: pointer; font-size: 12px; transition: all 0.2s; }
+  .apikey-toggle:hover { background: rgba(255,255,255,0.2); color: white; }
+  .apikey-hint { font-size: 9px; color: rgba(255,255,255,0.3); margin-top: 6px; line-height: 1.5; }
+
+  /* DROP ZONE */
+  .drop-zone { border: 1.5px dashed rgba(255,255,255,0.2); border-radius: 8px; padding: 24px 16px; text-align: center; cursor: pointer; transition: all 0.2s; margin-bottom: 20px; background: rgba(255,255,255,0.04); }
+  .drop-zone:hover, .drop-zone.drag-over { border-color: var(--accent); background: rgba(249,193,47,0.08); }
+  .drop-icon { font-size: 2rem; margin-bottom: 8px; display: block; }
+  .drop-text { font-size: 11px; color: rgba(255,255,255,0.5); line-height: 1.6; }
+  .drop-text strong { color: white; display: block; margin-bottom: 3px; font-size: 12px; }
+  #file-input { display: none; }
+
+  /* QUEUE */
+  .queue-title { font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; color: rgba(255,255,255,0.3); margin-bottom: 10px; }
+  .queue-list { display: flex; flex-direction: column; gap: 4px; flex: 1; overflow-y: auto; margin-bottom: 20px; }
+  .queue-item { background: rgba(255,255,255,0.06); border-radius: 4px; padding: 9px 12px; display: flex; align-items: center; gap: 10px; font-size: 11px; color: rgba(255,255,255,0.5); border-left: 2px solid transparent; transition: all 0.2s; }
+  .queue-item.processing { border-left-color: var(--accent); color: white; background: rgba(249,193,47,0.1); }
+  .queue-item.done { border-left-color: var(--good); color: rgba(255,255,255,0.7); }
+  .queue-item.error { border-left-color: var(--bad); }
+  .queue-item-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .queue-badge { font-size: 9px; padding: 2px 7px; border-radius: 10px; }
+  .queue-badge.processing { background: rgba(249,193,47,0.2); color: var(--accent); }
+  .queue-badge.done { background: rgba(26,158,92,0.2); color: #4ade80; }
+  .queue-badge.error { background: rgba(217,48,37,0.2); color: #f87171; }
+
+  /* PROCESS BTN */
+  .btn-process { background: var(--accent); color: var(--ink); border: none; padding: 14px 24px; font-family: 'Syne', sans-serif; font-size: 12px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; cursor: pointer; width: 100%; transition: all 0.2s; display: none; border-radius: 6px; }
+  .btn-process:hover { background: var(--accent-dark); transform: translateY(-1px); box-shadow: 0 4px 16px rgba(249,193,47,0.3); }
+  .btn-process:disabled { background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.3); cursor: not-allowed; transform: none; box-shadow: none; }
+  .btn-process.visible { display: block; }
+
+  /* MAIN */
+  .main { padding: 40px 48px 80px; overflow-y: auto; background: var(--bg); }
+  .main-header { margin-bottom: 32px; padding-bottom: 24px; border-bottom: 2px solid var(--border); display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+  .main-header h1 { font-family: 'Syne', sans-serif; font-size: 1.8rem; font-weight: 800; line-height: 1; color: var(--ink); }
+  .stats-row { display: flex; gap: 16px; }
+  .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px 20px; text-align: center; min-width: 90px; }
+  .stat-num { font-family: 'Syne', sans-serif; font-size: 1.4rem; font-weight: 800; color: var(--ink); display: block; line-height: 1; }
+  .stat-label { font-size: 9px; letter-spacing: 0.15em; text-transform: uppercase; color: var(--ink-light); margin-top: 4px; display: block; }
+
+  /* EMPTY */
+  .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 380px; text-align: center; }
+  .empty-icon { font-size: 3.5rem; margin-bottom: 16px; opacity: 0.2; }
+  .empty-title { font-family: 'Syne', sans-serif; font-size: 1rem; font-weight: 700; margin-bottom: 6px; color: var(--ink); opacity: 0.4; }
+  .empty-sub { font-size: 11px; color: var(--ink-light); opacity: 0.6; }
+
+  /* RESULTS */
+  .results-section { display: none; }
+  .results-section.visible { display: block; }
+  .section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+  .section-title { font-family: 'Syne', sans-serif; font-size: 1rem; font-weight: 700; color: var(--ink); }
+  .btn-export { background: var(--ink); color: white; border: none; padding: 10px 20px; font-family: 'Syne', sans-serif; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; cursor: pointer; transition: all 0.2s; border-radius: 6px; }
+  .btn-export:hover { background: #0a28b8; }
+
+  /* TABLE */
+  .table-wrapper { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 2px 12px rgba(7,31,158,0.06); }
+  table { width: 100%; border-collapse: collapse; font-size: 11px; background: white; }
+  thead { background: var(--ink); }
+  th { padding: 11px 14px; text-align: left; font-family: 'Syne', sans-serif; font-size: 9px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; white-space: nowrap; color: rgba(255,255,255,0.85); }
+  th:first-child { border-radius: 8px 0 0 0; }
+  th:last-child { border-radius: 0 8px 0 0; }
+  td { padding: 11px 14px; border-bottom: 1px solid var(--border); color: var(--ink); vertical-align: middle; white-space: nowrap; }
+  tr:last-child td { border-bottom: none; }
+  tr:nth-child(even) td { background: var(--surface); }
+  tr:hover td { background: var(--surface2); }
+  .cell-amount { font-family: 'Syne', sans-serif; font-weight: 700; color: var(--ink); }
+  .cell-file { color: var(--ink-light); font-size: 10px; max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
+  .cell-num { font-family: 'Syne', sans-serif; font-weight: 800; color: var(--accent-dark); background: rgba(249,193,47,0.1); padding: 3px 8px; border-radius: 4px; display: inline-block; }
+  .confidence-bar { width: 48px; height: 4px; background: var(--border); border-radius: 2px; position: relative; display: inline-block; vertical-align: middle; margin-right: 5px; }
+  .confidence-fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 2px; }
+  .processing-row td { color: var(--ink-light); font-style: italic; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+  .pulse { animation: pulse 1.2s ease infinite; }
+
+  @media (max-width: 768px) {
+    .layout { grid-template-columns: 1fr; }
+    .sidebar { position: static; height: auto; }
+    .main { padding: 24px; }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand">
+      <img src="data:image/jpeg;base64,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" alt="PayRetailers" style="width:100%;max-width:220px;display:block;margin-bottom:20px;border-radius:8px;">
+    </div>
+
+    <div class="apikey-section">
+      <label class="apikey-label" for="apikey-input">Mistral API Key</label>
+      <div class="apikey-wrap">
+        <input class="apikey-input" id="apikey-input" type="password" placeholder="Tu clave de Mistral..." autocomplete="off">
+        <button class="apikey-toggle" onclick="toggleKey()">👁</button>
+      </div>
+      <div class="apikey-hint">Obtén tu clave gratis en console.mistral.ai → API Keys</div>
+    </div>
+
+    <div class="drop-zone" id="drop-zone" onclick="document.getElementById('file-input').click()">
+      <span class="drop-icon">📄</span>
+      <div class="drop-text">
+        <strong>Arrastra PDFs aquí</strong>
+        o haz clic para seleccionar
+      </div>
+    </div>
+    <input type="file" id="file-input" accept=".pdf" multiple>
+
+    <div class="queue-title">Cola de procesamiento</div>
+    <div class="queue-list" id="queue-list">
+      <div style="font-size:10px;color:#444;text-align:center;padding:16px 0;">Sin archivos todavía</div>
+    </div>
+
+    <button class="btn-process" id="btn-process" onclick="processAll()">
+      ⚡ Procesar facturas
+    </button>
+  </aside>
+
+  <main class="main">
+    <div class="main-header">
+      <h1>Datos extraídos</h1>
+      <div class="stats-row">
+        <div class="stat-card"><span class="stat-num" id="stat-total">0</span><span class="stat-label">Facturas</span></div>
+        <div class="stat-card"><span class="stat-num" id="stat-amount">—</span><span class="stat-label">Total</span></div>
+      </div>
+    </div>
+
+    <div class="empty-state" id="empty-state">
+      <div class="empty-icon">🧾</div>
+      <div class="empty-title">Sin facturas procesadas</div>
+      <div class="empty-sub">Introduce tu API Key de Mistral, sube PDFs y pulsa "Procesar"</div>
+    </div>
+
+    <div class="results-section" id="results-section">
+      <div class="section-header">
+        <div class="section-title">Tabla de resultados</div>
+        <div style="display:flex;gap:8px;">
+          <button class="btn-export" onclick="exportCSV()">⬇ Exportar CSV</button>
+          <button class="btn-export" onclick="resetAll()" style="background:#888;">↺ Reiniciar</button>
+        </div>
+      </div>
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>Nº</th>
+              <th>CIF Proveedor</th>
+              <th>Nombre Proveedor</th>
+              <th>Nº Factura</th>
+              <th>Tipo IVA</th>
+              <th>Base Imponible</th>
+              <th>IVA</th>
+              <th>Retención</th>
+              <th>Suplidos</th>
+              <th>Ajuste IVA</th>
+              <th>Total Factura</th>
+              <th>Moneda</th>
+              <th>Fecha Emisión</th>
+              <th>Mes Registro</th>
+              <th>Medio de Pago</th>
+              <th>SWIFT</th>
+              <th>IBAN</th>
+              <th>Aprobado</th>
+              <th>PO Number</th>
+              <th>Fecha Vencimiento</th>
+              <th>Pagado</th>
+              <th>Fecha Pago</th>
+              <th>Contabilizado NetSuite</th>
+              <th>Cuenta Pago</th>
+              <th>Detalle</th>
+              <th>Archivo</th>
+              <th>Confianza</th>
+            </tr>
+          </thead>
+          <tbody id="results-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+</div>
+
+
+<script>
+
+const SUPPLIER_NAMES = {
+  'GB743882895': 'DATASITE UK LTD',
+  'A28278026': 'STELLANTIS & YOU ESPAÑA SAU',
+  '352954822': 'KESIL DIGITAL LLC',
+  '2012/005465/07': 'SNODE TECHNOLOGIES LTD',
+  'FR32831599469': 'IAM EXPERTS FRANCE',
+  'B67983023': 'EPICFLARE SL',
+  'N0370088G': 'SHEN ZHEN SHI TONG FU LONG KE JI YOU XIAN GONG SI',
+  'B02763084': 'PRIME SALES GLOBAL SL',
+  '300848412': 'LATAM READY LLC',
+  'B64816028': 'ROUPAG BCN 2008 SL',
+  '384377905': 'CORPORATE FINANCE HUB LLS',
+  'IE3500071PH': 'DIGICERT IRELAND LIMITED',
+  'B61315123': 'TRIBU-3 SL',
+  'A62232418': 'FOUR FIVE THREE LAW FIRM SAP',
+  'J67967455': 'FONTQUERNI PROCURADORES SCP',
+  'B88096946': 'ECOMMERCE HU 2018 SL',
+  '472172263': 'MAILSHAKE',
+  'HU25854071': 'SEON TECHNOLOGIES KFT',
+  '823480490': 'Synadia Communications Inc',
+  'NL860453538B01': 'Whitelabel Payments BV',
+  'NL860455221B01': 'CelerisPay BV',
+  'NL860158640B01': 'Connfido BV',
+  'B72582984': 'TRIBEX BLUE ONE SLU 55',
+  '35.651.456/000104': 'TRANSFEERA CONTA CERTA TECNOLOGIA LTDA',
+  '3102895979': 'Pay Retailers SJO SRL',
+  '3102811738': 'Pay Retailers Costa Rica SRL',
+  '207727844': 'PayRetailers SOF Ltd',
+  'PRE170628A80': 'PRETAILERS SA DE CV',
+  'BG207502363': 'OPEN PAYMENT TECHNOLOGIES BG LTD',
+  '27.084.098/000169': 'Transfeera Instituiçao de Pagamento SA',
+  '46.996.177/000190': 'PR do Brasil Instituicao de Pagamentos LTDA',
+  '45.423.582/000157': 'Pay Retailers Holding LTDA',
+  '45.423.315/000180': 'Local Pay Do Brasil Meio De Pagamentos LTDA 26',
+  'GOL200603C56': 'Golpago SA de CV',
+  'B72595861': 'PAYRETAILERS LATAM HOLDINGS SL',
+  'B72595853': 'PAY RETAILERS TECHNOLOGIES SLU',
+  'B72611569': 'PAYRETAILERS GROUP SLU',
+  '32.364.718/000153': 'Pay Retailers BR Serviços de Pagamentos LTDA',
+  'PRG2010062TA': 'Pay Retailers Group SA de CV',
+  'B55296438': 'MT Capital Ventures SL 2',
+  'B72749336': 'Treasury Hub SL',
+  '453823133': 'GRAMMARLY INC',
+  'ESB56506918': 'SUMALOGS SOCIEDAD LIMITADA',
+  'B23857345': 'HOP PEOPLE SL',
+  'B67572875': 'CLUSTER INTERIM MANAGEMENT SL',
+  'Y9248251B': 'MARCUS VINICIUS BRAGA DA SILVA',
+  'A79476941': 'ILUNION RETAIL Y COMERCIALIZACIÓN',
+  'DEPA970611857': 'ORBITA STUDIOS',
+  'GB881364801': 'EFICODE UK LTD',
+  'F92395383': 'TELECOMUNICACIONES ANIMADAS SCOOP AND',
+  'IE3345101KH': 'DOCUSIGN INTERNATIONAL (EMEA) LIMITED',
+  'DE334902904': 'SHENZHEN xintuoweikeji CO LTD',
+  'CY60044987M': 'MELLOW TRADING LTD',
+  'LU20260743': 'AMAZON EU SARL',
+  'B88142104': 'SMARTLAND 2010 SOCIEDAD LIMITADA',
+  'GB280341523': 'SYNTHESIA LIMITED',
+  'B62454780': 'MEJOR QUE MEJOR SL',
+  '41016520E': 'ANNA JIMENEZ YAGUE',
+  'B01800804': 'LEVELPHONE SL',
+  'B63964951': 'BLUE MOON CATERING SL',
+  'BE0806661106': 'NAYAN NV',
+  'GB995249171': 'EVENT SUPPORT SOLUTIONS LTD',
+  'N0242208G': 'SHENZHEN AISENBODIANZIYOUXIANGONGSI GUANGDONG SHENZHEN',
+  '46731671H': 'JORGE DOLZ GINER',
+  'MT17345614': 'MALTA SUNRIPE CO LTD',
+  'IE3335493BH': 'TWILIO IRELAND LIMITED',
+  'NL856544371B01': 'BGLEGAL BV',
+  'CHE267.954.862MWST': 'SONARSOURCE SARL',
+  'N0272573G': 'SYNCFUN HONGKONG LIMITED',
+  '14265928V': 'JAVIER MORANTE FRANCO',
+  'B80891211': 'LAST LAP SL',
+  'B86615465': 'DPTK INNOVACIÓN Y TECNOLOGÍA SL',
+  'B84883438': 'COMERCIAL ANAJIN 2006 SL',
+  'GB141248047': 'BUSUU LTD',
+  'MT30887636': 'SBC EVENTS MALTA LTD',
+  '815253945': 'REFORGE INC',
+  'N0084322G': 'SHENZHENSHI HONGYITENGHUI ET CO LTD',
+  'B01626076': 'MUBUTEL SL',
+  'IT13043110967': 'NANCHANGSHIXINGGEDIANZISHANGWUYOUXIANGONGSI',
+  'DE327574983': 'N8N GMBH',
+  'N6060120J': 'SALZMANN AND SCHAFER LTD',
+  'IE4451139NH': 'LIFEWIT GMBH',
+  'PL5263660819': 'SHENZHEN ANPUNA TECHNOLOGY CO LTD',
+  'B82832155': 'LOGICALIS SPAIN SLU',
+  'IT09395771216': 'SHENZHEN SHI QUANXIN KEJI YOUXIANGONGSI',
+  'GB946522901': 'NOTARYCOUK LIMITED',
+  'B64926504': 'ASESORIA EAN SLP',
+  'B55223655': 'ALABRIGA S\'AGARÓ SL C',
+  'B56592488': 'NNS TECH SOLUTIONS SL',
+  'DE400303181': 'FRITZZ GMBH',
+  'Y5322415E': 'ROSANE MOREIRA DA SILVA',
+  'Q0818002H': 'UNIVERSIDAD AUTONOMA DE BARCELONA',
+  'Q0818003F': 'UNIVERSITAT POLITECNICA DE CATALUNYA',
+  'GB363193396': 'DATACO INTERNATIONAL UK LIMITED',
+  'A78604113': 'PLUXEE ESPANA SAU',
+  '48856254E': 'JOSE MANUEL CASTILLO SANTIAGO',
+  'NL851389235B01': 'ELASTICSEARCH BV',
+  '53167706470': 'BUILTWITH PTY LTD',
+  '0450629131': 'LEEDS CONSULTING LLC',
+  'NL862000865B01': 'HI BOB NL BV',
+  '11602139': 'ALIGN COMPLIANCE AND SECURITY INC',
+  'B60322955': 'SERVEIS INTEGRALS DE FINQUES URBANES SL',
+  'FR49883134637': 'SHENZHENZHICHENGRENSHENGQIYEGUANLIZIXUNCO LTD',
+  '45002720': 'LLC SPACEBERRY STUDIO',
+  'B64055411': 'COPILOTOS PRODUCCIONES SL',
+  'N7205012C': 'SHENZHENSHISUZHIKEJIYOUXIANGONGSI',
+  'B42600320': 'THE FLOW LAB SL',
+  'B61379921': 'FORVIS MAZARS TAX & LEGAL SLP',
+  '39425924Z': 'TATIANA JOFRE PAREDES',
+  'B86685294': 'SPAIN STARTUP AND INVESTOR SERVICES SL',
+  'NL861124704B01': 'PROFITSOFT BV',
+  '20403931420': 'IGNACIO JORGE FIORENTINO',
+  'B65071862': 'CLOUD WORKSPACES SL',
+  'CY60088413Y': 'ULTIMATE FINTECH EVENTS LTD',
+  'LU27918884': 'SCORECHAIN SA',
+  'N0092894E': 'WUHAN DETUO KEJIYOUXIANGONGSI',
+  'N0072469J': 'APPLE DISTRIBUTION INTERNATIONAL LTD',
+  'PL5263650643': 'SHEN ZHEN SHI ZHI CHENG REN SHENG QI YE GUAN LI ZI XUN YOU XIAN GONG SI',
+  'DE338511453': 'NINGBO SKL INTERNATIONAL COMPANY LTD',
+  'NL859338083B01': 'SNOWFLAKE COMPUTING NETHERLANDS BV',
+  'A83115667': 'DEVOTEAM DRAGO SAU',
+  '29AALCP7974L1ZC': 'TYPO APP',
+  '450242138': 'TRUSTED TECH TEAM',
+  '8605250559': 'CONTROL DE RIESGOS SA',
+  'B83789271': 'RESTAURADORES ASTRUCOVA SL',
+  'B64658602': 'CENTRAL PARK PARTNERS SL',
+  'DE330928634': 'BRIGHT MANDS-TILMAN RESCH',
+  'B09741083': 'MEDIA HUB BROADCAST SL',
+  '46340243G': 'DAVID LLATA',
+  'IT11523640966': 'STUDIO LEGALE SANZO VASCELLO - ASSOCIAZIONE PROFESSIONALE',
+  'EU196000846': 'ONTHEGOSYSTEMS LIMITED',
+  'GB227200547': 'SNYK LTD',
+  '814619156': 'CLAY LABS INC',
+  'B70819354': 'DERRIBOS ESPECIALES MANUALES Y CONSTRUCCIÓN COTY SL',
+  'B67338723': 'GSV AUTOROAD SL',
+  'G64030158': 'FUNDACIO UNIVERSITAT POMPEU FABRA',
+  '460693826': 'PREPLY INC',
+  'B81878878': 'REFINITIV SL',
+  'B05480090': 'ITALENTERS SL',
+  'B66311341': 'TOBEIT SL',
+  '216597810019': 'BONAFIX SOCIEDAD ANONIMA',
+  'NL862881523B01': 'TIPALTI BV',
+  '823909757': 'JASPER AI INC',
+  'B02913606': 'MDW IBERIA 2020 SL',
+  'B83513705': 'OPENSISTEMAS DE INFORMACIÓN INTERNETSL',
+  'GB475700776': 'DEEL WORLD INTERNATIONAL GLOBAL PAYROLL UK LIMITED',
+  '843357831': 'TROVE INFORMATION TECHNOLOGIES INC',
+  'R103998159': 'ONLINE ENTERPRISES INC',
+  'B82498650': 'KPMG ASESORES SL',
+  'B81979965': 'DIGITAL AUDIMAGEN BQ SL',
+  '38858758M': 'ELOI MARTINEZ LOPEZ',
+  'B86430857': 'TAHIFED COMERCIO INTERNACIONAL SL',
+  'B84067990': 'FRANCH CASTILLO ASESORES SLL',
+  'GB809707706': 'DELOITTE LLP',
+  'N7207109E': 'SHENZHEN AISENBODIANZIYOUXIANGONGSI',
+  'B28205904': 'BUREAU VERITAS IBERIA SL',
+  'EU372050121': 'SENTRY',
+  'GB288003304': 'CLASS35 LIMITED',
+  '522111698': 'SAINT CORPORATION',
+  '874436547': 'ANYSPHERE INC',
+  '15564466622017': 'GLOBAL STAR SOLUTIONS CORP',
+  'EU826410924': 'GUMROAD INC',
+  '217453550018': 'CCPARTNERS SRL',
+  'HU26648525': 'WIZZ AIR HUNGARY LÉGIKÖZLEKEDÉSI ZÁRTKÖRŰEN MŰKÖDŐ RÉSZVÉNYTÁRSASÁG',
+  'B55124762': 'BLUA PRODUCERS SL',
+  'IT04685810485': 'LUNGARNO ALBERGHI SRL UNIPERSONALE',
+  '271519660': 'NPM INC',
+  'B64005432': 'CIRCUIT RACING SL',
+  '801283884': 'INTEGRA PARAGUAY SRL',
+  'B87286597': 'IPE VELAZQUEZ',
+  'A82869116': 'ALANTRA CORPORATE FINANCE SAU',
+  'UK6297317465': 'RUBLI SOLUTIONS LIMITED',
+  'B66456781': 'ONA LLIBRES',
+  '38880303E': 'DANIEL VIDAL-BARRAQUER CASTELLS',
+  '47878859N': 'GUILLEM GUARDIOLASERRA',
+  'B84430420': 'AKKODIS TECHNOLOGIES SPAIN SLU',
+  '4688086': 'ANTHROPIC INC',
+  'NL003613747B62': 'LAMBDA AI',
+  '202954357': 'SMARTSHEET INC',
+  'GB257565961': 'RED GATE SOFTWARE LIMITED',
+  '267834709': 'JOSE AGUSTIN GONZALEZ VILLANUEVA',
+  'B60864311': 'RODI METRO SL',
+  'B63742894': 'IRISH SPAIN BAR SL',
+  'N0029906E': 'BALIBETOV INC',
+  'N0025378A': 'APRIMONIA LTD',
+  'CHE114.587.664MWST': 'SONARSOURCE SA',
+  'B87480786': 'EL RECIEN NACIDO SL',
+  '30527225988': 'ALVEAR PALACE HOTEL SAI',
+  '2645035': 'PAYMENT SYSTEMS EUROPE LIMITED',
+  'B66605429': 'AIR FOOD SL',
+  'X8079595V': 'ALESSANDRO PREGNOLATO',
+  'B56139561': 'ENGLISH IN TOWN SL',
+  'B19349372': 'TRANSPORTISTO SL',
+  'B61771192': 'AUTOCARS ESTEVE SL',
+  'A28425270': 'CC CARREFOUR SA',
+  'DE322892036': 'BVD E-COMMERCE BV',
+  'W0264006H': 'AMAZON BUSINESS EU SÀRL SUCURSAL EN ESPAÑA',
+  'B64916729': 'G2 GOBIERNO Y GESTIÓN DE TI SL',
+  '51121434R': 'AMALIA PEIGNEUX BLANCO',
+  '30683020458': 'MONOGRAFIE S A',
+  'B02938157': 'NOVATURIA GLOBAL SL',
+  '20375581893': 'SINDBAD OROSCO CAZOLL',
+  'IT00175279991': 'BALVI GIFTS SL',
+  'FR81881976112': 'PMDE SHENZHENSHI XINZHENGSHENGFA SHANGMAO',
+  'GB173114980': 'VIAD SERVICE COMPANIES LTD',
+  '43695310W': 'ISMAEL FUNES AGUILERA',
+  'X5040229D': 'FACUNDO JOSE FALCON',
+  'EU372005861': 'TRELLO INC',
+  'CY60059786W': 'SG WORLDWIDE MEDIA COMPANY LTD',
+  'B64093610': 'MÓN SANT BENET SL',
+  'B62975354': 'TALMAN GROUP SL',
+  'GB399526828': 'VERTICE TECHNOLOGY LTD',
+  'W0250845E': 'REVOLUT BANK UAB SUCURSAL EN ESPAÑA',
+  '20611720999': 'FLOW IE SAC',
+  'MT26978918': 'DOUBLE TAP MEDIA',
+  'A81573479': 'ARVAL SERVICE LEASE SAU',
+  'G08266298': 'FUTBOL CLUB BARCELONA ASOCIACION',
+  'B62922604': 'BLUE SELF STORAGE SL',
+  'A28056604': 'CEGOS ESPAÑA LEARNING & DEVELOPMENT SA',
+  'B13927918': 'BRAITHWAITE KITCHEN SL',
+  'CZ9157201328': 'NATALIA USTINOVA',
+  'B67304717': 'NUCLIO DIGITAL SCHOOL',
+  '1180104367': 'RENDEMENT FUSION INC',
+  'DE316031766': 'SHEN ZHEN SHI SHEN LIAN CHUANG DIAN ZI YOU XIAN GONG SI',
+  'A81440786': 'SIEMENS FINANCIAL SERVICES SAU',
+  '38138313N': 'MONTSERRAT  SALDAÑA CALLICO',
+  'B78489820': 'VAUGHAN SYSTEMS SLU',
+  '46475193J': 'ALEJANDRO RODRIGUEZ PRITCHARD',
+  'B16898405': 'COAST GAVA SL',
+  '20604912271': 'CUATRECASAS GONÇALVES PEREIRA SOCIEDAD CIVIL DE RESPONSABILIDAD LIMITADA',
+  'IT13154500964': 'FO SHAN SHI LE YI MEI MAO YI YOU XIAN GONG SI',
+  'DE337851942': 'SHENZHENSHI GUINIAODIANZISHANGWUYOUXIANGONGSI',
+  'B09560442': 'HEMARCASTILLA SL',
+  'GB835586102': 'GRANT THORNTON UK LLP',
+  'N0234845F': 'SHENZHEN HAIYI TIANXING TRADING CO LTD',
+  'B67081794': 'QR CODE GENERATOR PRO SL',
+  'GB238720892': 'MONETA MEDIA LTD',
+  'PT980823269': 'SBC EVENTS MALTA LTD',
+  'B56656473': 'MOOVCAPEU SL',
+  'GB945724107': 'THE CAMBRIDGE INTERNATIONAL SYMPOSIUM ON ECONOMIC CRIME',
+  '521471842': 'RELX INC',
+  'ESB85826451': 'WINTERMAN CONSULTING GROUP SL',
+  'B02641355': 'START TODAY SL',
+  '800610024': 'PROSPER SRL',
+  '54613048P': 'ANDREA APONTE',
+  'FR40928852383': 'STE WARMAIRE OU',
+  'B98992696': 'MEDIA MARKET STORE SL',
+  '611936517': 'SOCRADAR CYBER INTELLIGENCE INC',
+  'B80932189': 'INFORMÁTICA MERCAMICRO SL',
+  'B38054425': 'SISTEMAS DE DATOS SL',
+  'B63721864': 'DIAGONAL INTERNATIONAL MOVING SL',
+  '301166495': 'SCHNEIDER ELECTRIC DIGITAL INC',
+  'FR49878510841': 'PMDE SHEN ZHEN SHI SHEN LIAN CHUANG DIAN',
+  'FR06903181451': 'PMDE SHANXIQIANYUANDEDIANZISHANGWUYOUXIAN',
+  'G78253176': 'ASOC INSTITUTO DE AUDITORES INTERNOS',
+  'A58179383': 'PADECAVA SA',
+  'ESX4847428V': 'PUIG MIR RODRIGO',
+  'ESB60705233': 'MITTAG SERVEIS SL',
+  'N0076226J': 'ZHANG PU YING HENG WANG LUO KE JI YOU XIAN',
+  'B60441441': 'FLASH DOR SL',
+  'GB553804931': 'LANSONS COMMUNICATIONS HOLDINGS LIMITED',
+  'B63130785': 'ATENEA GLORIAS SL',
+  '20318527955': 'IGNACIO STAGNARO DI CROCE',
+  '21236341': 'SUNSHINE EXHIBITION SERVICE NIG LTD',
+  'B67180463': 'NASPEDONIA S L',
+  'B10646040': 'RETAIL FOR TOMORROW SL',
+  'ESB45418662': 'OFICINAS ALVAREZ MARTIN SL',
+  'ES41500692K': 'ARNAU MARTI LUPRESTI',
+  'N0188244H': 'LISHUISHILIJUNLAOWUFUWUYOUXIANGONGSI',
+  'B87412953': 'PRIME IT IBERICA SL',
+  'B73714552': 'PRIVACIDAD EN INTERNET SL',
+  '1949845': 'EVENTUS INTERNATIONAL LIMITED',
+  'B59355552': 'LLORENS ASOCIADOS SL',
+  '852702558': 'RIVERSIDEFM INC',
+  'GB567407323': 'FIRSTPOINTPRINT',
+  'A08663619': 'CAIXABANK SA',
+  '20392123025': 'GABRIEL  WOLNY',
+  '20325331012': 'NICOLAS RICCI',
+  '300590712': 'BRIGHTWELL PAYMENTS INC',
+  'ESB66806134': 'TAROSA SOLUTIONS SL',
+  '61328570': 'AFRICAN PRESS ORGANIZATION LTD APO GROUP',
+  'B91405084': 'ON DEMAND FACILITIES SLU',
+  'B61588737': 'SISTEMAS INTEGRALES DE REDES Y TELECOMUNICACIONES SL',
+  '27391210417': 'CECILIA  ALVAREZ',
+  'B87539284': 'VODAFONE SERVICIOS SLU',
+  'ES40883050K': 'RIVERO MORENO MARIA DEL PILAR',
+  'A81626905': 'COLT TECHNOLOGY SERVICES SAU',
+  'IT13216940968': 'SHENZHENSHIMEIHUADUOKEJIYOUXIANGONGSI',
+  'N0267132I': 'CHANGSHASHENTUODIANZISHANGWUYOUXIANGONGSI',
+  '51411573H': 'ANDRES MAROTO BALBOA',
+  'B81011470': 'CENTRO EUROPEO DE ESTUDIOS Y FORMACIÓN EMPRESARIAL GARRIGUES SL',
+  'B62378781': 'INBOUNDCYCLE SL',
+  'A95758389': 'IBERDROLA CLIENTES SAU',
+  'IT13204990967': 'FRUIKLEV SP Z O O',
+  'N0267392I': 'TECKNET-ONLINE LIMITED',
+  '20287087625': 'IVAN WASSAF',
+  '20370865052': 'FRANCO ESTEBAN GONZALEZ',
+  '23276620339': 'EMILIANO CANDIA',
+  '20278180981': 'GUILLERMO  NICOLAS SICILIANO',
+  'GB366053595': 'V1CE LTD',
+  'B65939555': 'SNACK BAR GREENS SL',
+  'PL5263213977': 'MSV DEUTSCHLAND GMBH',
+  'B86150661': 'LISTO PARA LLEVAR SLU',
+  '20959490229': 'ELLIOT PINO',
+  'B59854455': 'CIBT SPAIN',
+  '43.544.554/000162': 'JERICHO PRODUCOES SA',
+  'B86284973': 'DIGITAL SQUARE SL',
+  'ES43032900S': 'ALFONSO GONZALEZ GRAU',
+  'NL851692540B01': 'YOAST BV',
+  'B58387721': 'ALTIMA SERVEIS FUNERARIS SL',
+  '544434709': 'RICK CASTELLO',
+  'B70722624': 'UTOPIKA AUDIOVISUAL SL',
+  'B61407557': 'NAVARROFLOR SL',
+  'A81948077': 'ENDESA ENERGIA SAU',
+  '199895118': 'SMART DIGITAL TV LIMITED',
+  '852348863': 'PUNTO ROJO DIGITAL MARKETING LLC',
+  'GB948563085': 'PORTSWIGGER LTD',
+  'UY215159110018': 'CHERRO VARELA VALERIA ALEXANDRA',
+  'NL805403528B01': 'DUTCH ASSOCIATION OF CORPORATE TREASURERS',
+  'FR31848427449': 'SAS FLEET',
+  'N2764156B': 'SIGMA TEAM UG',
+  'N0089130I': 'YANGJIANGSHI CHUDIAN DIANZISHANGWU',
+  'B41876798': 'AVANTE FORMACIÓN SL',
+  '6140912051011': 'GARCIA & BODAN EL SALVADOR SA DE CV',
+  'DE334892962': 'SHEN ZHEN SHI SI MI RUI KE JI YOU XIAN GONG SI',
+  'B65106189': 'LAPICA TRIPS&EVENTS',
+  'CS20200000671': 'AEL Manila Limited INC',
+  'A61610945': 'INDOORKARTING SPAIN SA',
+  '12463096': 'FULLSTORY INC',
+  'ESB61342887': 'SI Alerta SL',
+  'DK30276582': 'TRUSTPILOT A/S',
+  'B88529656': 'OTTO KONING SL',
+  'B66958752': 'INNOIT CONSULTINGSL',
+  '20330357623': 'FABIO FERNANDEZ',
+  '20550238323': 'PERFORMANCE DEVELOPMENT SAC',
+  'FR00881636294': 'STE DAVER LTD',
+  'A82037292': 'MEDIA MARKT SATURN SAHUELVA',
+  '20382027761': 'LUIS F ESPILOCIN DAL BON',
+  '20359576944': 'NICOLAS GONZALEZ MICO',
+  'EU372071403': 'MARCARIACOM LLC',
+  'B16893661': 'ERES LEGAL EUROPE SL',
+  'B78510153': 'KPMG AUDITORES SL',
+  'B66273905': 'NOMO SARRIÀ SL',
+  '104074315300003': 'ULTIMATE EVENTS FZE',
+  '46236304W': 'DAN COLLADO LLOMBART',
+  'N0170422J': 'SHEN ZHEN SHI XUN YING KE JI YOU XIAN GONG SI',
+  'N0112117G': 'LIFEWIT GMBH',
+  'N0087185E': 'BMGG EUROPE GmbH',
+  'N0277133E': 'SHIJIE SARL',
+  '104075685800003': 'FINANCE MAGNATES EVENTS FZE',
+  '76596671K': 'WEBDOX LEGAL INFORMATICS & DATA SPA',
+  '320743558': 'NET IMPRESSION DIGITAL SERVICES INC',
+  'BG203642040': 'NOTOLYTIX LTD',
+  'FR78985248616': 'PMDE WUHANSHIMIYUANKEJIYOUXIANGONGSI',
+  '03.784.250/000158': 'PRICEWATERHOUSECOOPERS SERVICOS CORP RECOVERY LTDA',
+  '1513155': 'ARIFA CORPORATE SERVICES INC',
+  'CY10435727S': 'ULTIMATE FINTECH EVENTS LTD (ANTIGUO)',
+  'IT16243921000': 'WUHANSHIMIYUANKEJIYOUXIANGONGSI',
+  'B65990715': 'LOBINSA CAPITAL SL',
+  'B61443800': 'TAXI CLASS RENT BCN SL',
+  'SE556709197901': 'AXON PROFIL AB',
+  'B66562653': 'THE MEET AND TRADE GROUP SL',
+  'ESG65905028': 'LSB Spain',
+  'IT13090600969': 'SHIJIE SARL',
+  'DE317569294': 'EUZIEL INTERNATIONAL GMBH',
+  'B86093390': 'FRUTALITY SL',
+  'B91416867': 'REDK INGENIERÍA DEL SOFTWARE SL',
+  'B67352880': 'SKYLIGHT PARTNERS SL',
+  'A86586286': 'NAVIERA DIRECT AFRICA LINE SA',
+  '20402355612': 'MATIAS LEONEL QUIROGA',
+  'B88509062': 'TRANSLINGUO CREATIVE GROUP SL',
+  'B50712157': 'EFOR GLOBAL TECHNOLOGY SL',
+  'GB854477393': 'CIBT UK Limited',
+  'A28732667': 'ASPAMA SA',
+  'DE328972174': 'SHEN ZHEN SHI ZHI CHENG REN SHENG QI YE GUAN LI ZI',
+  'B87015038': 'DOÑA TECLA RESTAURACION SL',
+  'N0026012E': 'J&V TECHNOLOGIE GMBH',
+  'FR24538842667': 'EURL INORCO',
+  '454167416': 'GREENHOUSE SOFTWARE INC',
+  'DE311349733': 'HANGZHOU GREAT STAR INDUSTRIAL CO LTD',
+  'Y1163928G': 'ANNA KOPECKA',
+  'B84495449': 'SALESFORCE SYSTEMS SPAIN SL',
+  'B40532194': 'BIGTRANSLATION',
+  'CY10415670U': 'SG WORLDWIDE MEDIA COMPANY LTD (VAT ANTIGUO NO USAR)',
+  'FR56918859125': 'SARL LI ESHOP',
+  'N0112588I': 'ZHUZHOU SHIDAI CHENGXIN SHIYE YOU XIAN GONG SI',
+  'IE4195777WH': 'HOLAFLY LIMITED',
+  'DE285882536': 'Sauce Labs Europe GmbH',
+  'B67554360': 'BQGAT RELOCATION SL',
+  'DE340571148': 'CHONGQINGLEIGAOKEJIYOUXIANGONGSI',
+  '20360867731': 'NICOLAS TAMBUSSI',
+  '20959362255': 'JULIO NAVARRO',
+  '20369304780': 'LAUTARO LEONEL MEDINA',
+  '20208703197': 'GUSTAVO MARTIN LÓPEZ BIALET',
+  '3102427798': 'INVICTA LEGAL LIMITADA',
+  'B27464262': 'TRADINEUR COMMERCE EUROPE SL',
+  'NI698062': 'SLICENT BLING LIMITED',
+  'B67205211': 'FAMILIA RUGHINI SL',
+  'N0070712E': 'NINGBOSHIFEILINWEICHUYOUXIANGONGSI',
+  '753241434': 'EGESTURES LLC',
+  'B65098063': 'NR MOBILITY SOLUTIONS SL',
+  'B54750278': 'IBADANICA SL',
+  'N7204953I': 'SHENZHENSHISHENGLEKEJIYOUXIANGONGSI',
+  'B28266526': 'ERNST & YOUNG ABOGADOS SLP',
+  'B67619445': 'ABACUM PLANNING SL',
+  'DK34759561': 'INSTANTCDKEY',
+  'GB923426534': 'SAFEGUARDWORLD INTERNATIONAL LTD',
+  '136352C': 'Open Payment Technologies Ltd (IOM)',
+  '14938587': 'Open Payments Technologies (UK) Ltd',
+  '20375734967': 'SEBASTIAN IPOLITTI',
+  'A60559416': 'MARTINIANOX SA',
+  'N7401700E': 'AUTDORS SPORTS LIMITED',
+  'IT12289300969': 'SHENZHENSHIJIAZHIDADIANZISHANGWUYOUXIANGONGSI',
+  'FR15851005736': 'PMDE SHENZHEN CHENNING TRADING CO LTD',
+  'GB991590089': 'WOOSHII LIMITED',
+  '30717460991': 'Digipago SRL',
+  '20426790565': 'JULIAN PEREZ DEMONTY',
+  '273155665': 'WP ENGINE',
+  'B66167479': 'IMPRESIÓ I RETOLACIÓ CABRERA SL',
+  'A41126384': 'AON CONSULTING SERVICES SA',
+  'DE349242045': 'DEEPL SE',
+  'G64489172': 'FUNDACIÓ INSTITUT DE FORMACIÓ CONTÍNUA DE LA UNIVERSITAT DE BARCELONA',
+  'B17527524': 'TRADEINN RETAIL SERVICES SL',
+  'B63441075': 'DUSHOW BARCELONA SL',
+  'B55704449': 'ALWAYS REVOLUTION SLU',
+  '45785765X': 'DIDAC FERNANDEZ DUCABLE',
+  'Y5054667V': 'MARYIA PLAVINSKAYA',
+  'B60514924': 'MANIPULATS BAGES SL',
+  'FR77911984839': 'KIKOMOLI',
+  'PL5263196687': 'AZURE PRISM LIMITED',
+  'B63355796': 'FLASH D\'OR BARCELONA SL',
+  'A80192727': 'INFORMA D&B SAU',
+  'B83882472': 'EQA CERTIFICADOS I MAS D MAS I SLU',
+  '460509273': 'ACONCAGUA SOFTWARE CORP',
+  '20351109719': 'GUIDO RACCIATI',
+  'IT03412181202': 'STICKER MULE ITALY SRL',
+  '101896574': 'JM ALBURQUERQUE CONSULTORES SRL',
+  'B04437729': 'SOLUCIONES WEB ON LINE SLU',
+  'DE308385481': 'THINK-CELL SOFTWARE GMBH',
+  'B81346140': 'BAKER MCKENZIE MADRID SLP',
+  'B13691811': 'TRUHUMANITAS SL',
+  '263416217': 'PAGEANT GAMING MEDIA LIMITED',
+  '320459185': 'CIO BULLETIN',
+  'BG175128424': 'GESTYONA BULGARIA LTD',
+  '46361576Q': 'DANIEL SOLER MAYORAL',
+  '660776247': 'MARICHAL HERNÁNDEZ SANTIAGO & JUARBE LLC',
+  'B87345096': 'RUSSELL REYNOLDS ASSOCIATES SPAIN SLU',
+  '45.762.077/000137': 'MACHADO MEYER SENDACZ E OPICE ADVOGADOS',
+  'GB899372551': 'ICA COMMERCIAL SERVICES LTD',
+  'B01823210': 'PREMIUM GLOBAL SELLERS SL',
+  'NL814254330B01': 'SONOS EUROPE BV',
+  '10853352C': 'ESTHER ALVAREZ MARTINEZ',
+  '472815447': 'VALLEYMEDIA INC',
+  'DE352195568': 'SUZHOUYIYONGWANGLUOKEJIYOUXIANGONGSI',
+  'IT08710071211': 'UNCLE FOOD SRL',
+  'N0093245I': 'HEFEILISITINGDIANZISHANGWUYOUXIANGONGSI',
+  '852980205': 'WOWFACTOR LLC',
+  'DE327573298': 'SHEN ZHEN SHI YUAN ZHI KE JI YOU XIAN GONG SI',
+  '410917814': 'DUCO TECHNOLOGY LIMITED',
+  'N0096664H': 'ANHUISHENGLINZHONGDIANZIKEJIYOUXIANGONGSI',
+  'EU372041333': 'OPENAI LLC',
+  'GB174984654': 'SIMILARWEB UK LTD',
+  'IT11230010966': 'SHEN ZHEN SHI ZHI CHENG REN SHENG QI YE GUAN LI ZI XUN YOU X',
+  '20942015829': 'JHON POOL YON NUÑEZ',
+  'N7201968J': 'SHENZHENSHIXINQISHUMAYOUXIANGONGSI',
+  'N4009088H': 'SARIANA LLC',
+  'FR32953270352': 'CHENGDUDONGJINLESHANGMAOYOUXIANGONGSI',
+  '38170890K': 'ELENA LANZA IBAÑEZ',
+  'NO820203542MVA': 'ADVOKATFIRMAET GRETTE AS',
+  'BG179541251': 'DIANA GEORGIEVA MILKOVA ATTORNEY-AT-LAW',
+  '14107855': 'SCORPIONWANG CONSULTANCY LIMITED',
+  '20342051171': 'SANTIAGO GONZALEZ',
+  'GB325094905': 'REYNOLDS PORTER CHAMBERLAIN LLP',
+  '3101690118': 'MEDIA BUSINESS SERVICES COSTA RICA SA',
+  '77187880H': 'MANUEL TEJUCA GONZÁLEZ',
+  'DE262991638': 'NESATEC GMBH & CO KG',
+  'N0088724J': 'SHEN ZHEN SHI ZHONG XIN DIAN ZI SHANG WU YOU XIAN GONG SI',
+  'DE343767604': 'GUIZHOUCEXIANDIANZISHANGWUYOUXIANGONGSI',
+  'IT11016980960': 'SHENZHENSHIHUAXINYUSHENGKEJIYOUXIANGONGSI',
+  'FR12829065499': 'LOIC VINCENT LEON BERGER',
+  'A61691739': 'HOTEL FIRA SAU',
+  'N7202991A': 'NAVY PENGUIN LIMITED',
+  'HR78209781849': 'TRANSENDPRO DOO',
+  '30500089624': 'LA NACION',
+  '423155525': 'TREASURY HUB LTD',
+  'Y6590062R': 'MARIA LAURA ROMO',
+  'GB214640634': 'FACTIVA LIMITED A DOW JONES COMPANY',
+  'IT04440220962': 'NH ITALIA SPA',
+  '36.537.602/000120': 'GB SERVIÇOS DE INFORMAÇAO E COMUNICAÇAO LTDA',
+  'B66910860': 'COPYSHOW SL',
+  'BG179405687': 'Нотариус ЕВГЕНИЯ БРАТОЕВА',
+  'BG131336982': 'BLVD Ltd',
+  'FR90897468955': 'PMDE CHENGDU GUANGLONGYU QICHEPEIJIANYOUX',
+  'DE350432911': 'VOORRAAD FANAAT BV',
+  'PL5263327793': 'SKIRMANTAS SARKAUSKAS',
+  'N0050012D': 'SHENZHENSHIRUIYUNXINDIANZIYOUXIANGONGSI',
+  'FR17881162002': 'PMDE SHENZHENSHI XINRUYI MAOYIYOUXIANGONG',
+  'FR27919215558': 'SARL ARENDT Z',
+  'N0118144E': 'SHENZHENSHILEYIBOKEJIYOUXIANGONGSI',
+  '799435755': '2534835 ALBERTA INC',
+  '800812659': 'SHUTTERSTOCK INC',
+  'B58094194': 'FOTOCOPIAS DIAGONAL SL',
+  'B83160317': 'MERCER CONSULTING SLU',
+  'B64954316': 'COOKIE BOX SL',
+  'B10803252': 'OT TECHNOLOGIES SPAIN SLU',
+  'N6061547C': 'COS SUPPLIES & SERVICE LTD',
+  'N7202278C': 'ORNARTO TECHNOLOGY LIMITED',
+  '20336077347': 'FERNANDO GABRIEL ALVAREZ',
+  'A80907397': 'VODAFONE ESPAÑA SAU',
+  'B85703411': 'GIOVANNA FASHION SL',
+  '38856706T': 'DENISE LOPEZ REDONDO',
+  'FR65891026239': 'NANJING FANGSU WANGLUO KEJI YOUXIAN GONGSI',
+  'G28197564': 'ASOCIACION ESPAÑOLA CONTRA EL CANCER',
+  'DE320502556': 'SHENZHENSHI HUAYISHENGWANGLUOKEJI',
+  'B04853578': 'MOIMI ARCADE SL',
+  'DE340347228': 'CHENGDU GUANGLONGYU QICHEPEIJIANYOUXIANGONGSI',
+  'DE351225094': 'WUHANZHAOWENDAODIANZISHANGWUYOUXIANGONGSI',
+  'N0175996H': 'YUNWANG YU',
+  'IT01279610867': 'AMERICAN HOT DOG DI BONAIUTO FILIPPO',
+  'PL5263202703': 'HANGZHOU GREAT STAR INDUSTRIAL CO LTD',
+  'B72777568': 'BYTEBERRY STUDIO SL',
+  'DE331869277': 'WUHANSAIDEDIANZISHANGWUYOUXIANGONGSI',
+  'IT11816330960': 'CHANGSHASHIBIBIDONGKEJIYOUXIANGONGSI YUELUQUWANGCHENGPOJIEDAO',
+  '300506131': 'GREENVELOPE LLC',
+  'BRCT00000920705': 'IBET LTD',
+  '20.833.283/000160': 'PPSE CONSULTORIA CONTÁBIL LTDA',
+  'BG130974195': 'Испаника ЕООД',
+  'B87115259': 'B4A CORPORATE COACHING SL',
+  'NL826831801B01': 'TESTGORILLA BV',
+  '11157253': 'RP PARTNERS LIMITED',
+  'BG131432977': 'PENKOVA & PARTNERS LAW FIRM',
+  'LT347776113': 'UAB TOPO GRUPE',
+  'IT12328240960': 'SHENZHENSHI MUXIAOJUN DIANZIJISHU',
+  '14903970': 'GLOBALTECHINVOLVED OÜ',
+  'N0256529I': 'HUOJIAN GONGYINGLIAN YOUXIANGONGSI',
+  'B67137968': 'LOYAL PRINT SL',
+  '300830315': 'OPSGENIE INC',
+  'N0084788I': 'DONGGUAN QIYAO TRADING CO LTD',
+  'DE343975765': 'SHENZHENSHI CHUANGYILAN KEJI YOUXIANGONGSI',
+  'N8267626C': 'RED ROCK (UK) LTD',
+  '20344365459': 'MAXIMO DIEGO NOVOA',
+  '20957556591': 'ROBERT SERRANO',
+  '872193169': 'PLENDUP LLC',
+  'CY10394751U': 'BRIDGER AI LIMITED',
+  'W0071604C': 'HEWLETT-PACKARD INTERNATIONAL BANK DAC',
+  'B66484577': 'PERK PLATFORM SLU',
+  'B64342124': 'SERVIR COMIDAS Y BEBIDAS SLU',
+  '27246001613': 'CECILIA INES RODRIGUEZ',
+  '48.109.110/000112': 'TOZZINI FREIRE TEIXEIRA E SILVA ADVOGADOS',
+  'DE356979538': 'CRESCENT MOON TRADE KFT',
+  '13814263': 'REDLOFT CONSULTANCY LIMITED',
+  'B66648940': 'CAM LAMPAZAS',
+  '20349286093': 'JULIAN ISMAEL FERNANDEZ',
+  '20955915764': 'JOSE MIGUEL ARTEAGA',
+  'G54199188': 'SERVICIOS DIGITALES NORDES SL',
+  'DE326707196': '3X3 PROJECT GMBH',
+  'B62363213': 'AL ESTE DEL EDEN SL',
+  'DE312173901': 'MR COSMETICS LTD',
+  'N0023554I': 'NIBOLINE GMBH',
+  '46773161Q': 'M ARANTZAZU GOMEZ ESQUE',
+  'B05508056': 'HOLAFLY SL',
+  '364782073': 'SILICON REVIEW LLC',
+  'A85934784': 'FLEUROP INTERFLORA ESPAÑA SA',
+  'DE312659491': 'LEAPSOME GMBH',
+  'B87027025': 'CIRCULO PRODUCCION GRAFICA SL',
+  'CY99000278H': 'FINANCE MAGNATES CY LIMITED',
+  'EU208476064': 'KAHOOT ASA',
+  'DE244822460': 'CLEVERBRIDGE GMBH',
+  'B66236928': 'QUEROL SERRA SL',
+  'DE345818477': 'SHENZHENSHISHANGHUIBANSHANGMAOYOUXIANGONGSI',
+  'EU372020209': 'BROWSERTACK INC',
+  '270805829': 'CLOUDFLARE INC',
+  'B88253620': 'BINARY DOMAIN SL',
+  '20330222795': 'SANTIAGO JAVIER PRADO',
+  'B87476628': 'RPA ROBOTIC AND AUTOMATION TECHNOLOGIES SL',
+  '74648132E': 'ANDRES FERNANDEZ MARTIN',
+  '9011869602': 'DATAFAITH SAS',
+  'A28157360': 'BANKINTER SA',
+  'B94062411': 'SERLOGAL 20 SL',
+  'B64783806': 'MCCOY & LLOAN SL',
+  '20303372513': 'VICTOR MANUEL FERNANDEZ',
+  'EU372008054': 'UDEMY INC',
+  '20190266266': 'CRISTIAN MEDRANO',
+  '27397902604': 'STEPHANIE ALEJANDRA RIGHETTI',
+  'IT09576061213': 'CARBASY STORE SRLS',
+  'B63582183': 'ACTUA GESTIÓN DEL CONOCIMIENTO SL',
+  'B86976024': 'WALTERS PEOPLE SOCIEDAD LIMITADA EMPRESA DE TRABAJO TEMPORAL',
+  'B58196676': 'CABOEL SL',
+  'EU528494537': 'REALTIMEBOARD INC DBA MIRO',
+  'N0531372A': 'BOLT OPERATIONS OÜ',
+  'B28444594': 'HOTELERA DIAGONAL SL',
+  '800257472': 'FERRERE ABOGADOS',
+  'DE310415575': 'RED ROCK UK LTD',
+  '20299943292': 'JUAN MANUEL CHACON',
+  '27332709173': 'MARILYN PIRRELLO',
+  'B84413426': 'SPINBIZ COMPANY SL',
+  'LT100011706713': 'REVOLUT BANK UAB',
+  '11119159741': 'ENVATO PTY LTD',
+  '52199998A': 'JOSE GABRIEL RUIZ RIOS',
+  'FR83843804899': 'ADYOUNEED',
+  'B66242355': 'EVENTO EMPRESA BCN SL',
+  'B64655525': 'COQUO CATERING SL',
+  '19.253.012/000193': 'BATTAGLIA E VIDILLI SOCIEDADE DE ADVOGADOS',
+  'N3030741G': 'MDESIGN COÖPERATIE UA',
+  'A79935607': 'DECATHLON ESPANA SAU',
+  'N8267287D': 'REDFIT LTD',
+  'DE320390619': 'POR SHENZHEN COOLQING TECHNOLOGY CO LTD',
+  'B67362863': 'WELLWO TECHNOLOGIC SL',
+  '47806278L': 'ALBERT DOU ROIG',
+  'J65999310': 'DANIEL\'S CAKE SCP',
+  '515449023': 'ARTLIST LTD',
+  'FR78439853797': 'SARL PCTOP INFORMATIQUE',
+  '55.555.5555': 'Local Pay Do Brasil Meio De Pagamentos LTDA',
+  'A66098435': 'AIGÜES DE BARCELONA',
+  '922992752': 'ROULEUR MANAGEMENT LLC',
+  'B67125575': 'MATCHA TEA COMPANY SL',
+  'B10901585': 'DISTRIBUCION EN LINEA EUROPA SL',
+  'GB362573194': '88 ELEMENTS LTD',
+  'N0113131G': 'SHENZHENSHIHECHANGJINSHENGMAOYIYOUXIANGONGSI',
+  'N0082934A': 'ZYXEL NETWORKS A/S',
+  '20955987595': 'DENISTH HURTADO',
+  '27324891728': 'LETICIA CELESTE MALDONADO',
+  '27334430788': 'GRISELDA FLORENCIA DIZ',
+  'N4000465G': 'CANOPUS GROUP LLC',
+  'A80546088': 'ILUNION HOTELS SA',
+  'B64830631': 'BIMIND IT SL',
+  'B88583570': 'HELPERS CONSULTING SL',
+  'B61100152': 'GRUPO 69 SISTEMAS INFORMATICOS SL',
+  'B67380402': 'TRES TECHIES SL',
+  'B85127629': 'GRENKE RENT SL',
+  'B01923523': 'MI REPRO IMPRENTA SL',
+  'B64804362': 'PORTAL 14 SL',
+  'B67573360': 'OHTIC SOLUTIONS SL',
+  'EU528003828': 'NOTION LABS INC',
+  'CHE114587664': 'SONARSOURCE',
+  'GB425393003': 'OLINDO LTD',
+  '09.429.171/000296': 'LLORENTE & CUENCA DO BRASIL CONSULTORES DE COMUNICAÇÃO LTDA',
+  'N0188432I': 'DANE ELEC CORPORATION USA',
+  'FR82891862708': 'STE DANE ELEC CORP USA',
+  'IT03639760549': 'SHEN ZHEN SHI HUA NUO SHI TING KE JI YOU XIAN GONG SII',
+  'PL5263336579': 'SHEN ZHEN SHI HUA NUO SHI TING KE JI YOU XIAN GONG SI',
+  'IT15027621000': 'EMME SRL',
+  'B30622765': 'ELECTRO ALAMEDA 39 SL',
+  'B83074146': 'IMF INTERNATIONAL BUSINESS SCHOOL SL',
+  '08101610620027': 'MANUEL DE JESUS ARGUETA MARROQUIN',
+  'D59474577': 'WERKHAUS SL SCS',
+  'B82938572': 'TITANIA COMPAÑÍA EDITORIAL SL',
+  'NL862590334B01': 'ELASTIC INTERNATIONAL BV',
+  'B66615501': 'EL MUNDO IKIBANA SL',
+  'B66654419': 'DELVY LAW SL',
+  'B84148766': 'INVERSIONES LA GROTTA SLU',
+  'B40560963': 'JABIRU WEB SL',
+  'B54661780': 'DROITEK ELECTRODOMESTICOS',
+  'IE6426071C': 'DIGITAL RIVER IRELANDLTD',
+  'G08555278': 'REIAL CLUB DE TENNIS BARCELONA 1899',
+  'DE324892110': 'SHENZHEN CHENNING TRADING CO LTD',
+  'B86211745': 'MAIN PAPER SL',
+  'GB419857552': 'MILK & HONEY PR LIMITED',
+  'SE559257214201': 'WHISTLEBOWING SOLUTIONS AB',
+  'A79486833': 'ELECNOR SERVICIOS Y PROYECTOS SAU',
+  'B83062158': 'DENTONS EUROPE ABOGADOS SLU',
+  'B60861119': 'ISERN PATENTES Y MARCAS B SL',
+  'B62565734': 'MOLINS ADVOCATS DEFENSA PENAL SLP',
+  'B87660874': 'ECOMMERCE MASTERMINDS SL',
+  'DE342058965': 'YINGZEXIDAJIE100HAOGUOJINENG',
+  '20380892716': 'GERMAN BERTOLINI',
+  'B10674703': 'BASE4 SECURITY ESPAÑA LC',
+  '20285708037': 'FACUNDO ARIEL FERNANDEZ',
+  'N0078602J': 'SICHUANAIYARUIKEJIYOUXIANGONGSI',
+  'IT00243569993': 'GD EUROPE LTD',
+  'N7203066A': 'HONG KONG UGREEN LIMITED',
+  'IT11304581009': 'MILLENNIUM STAR SRL',
+  'DE345229966': 'DONGGUANSHIJIAYOUSUJIAOWUJINDIANZIYOUXIANGONGSI',
+  '17997466N': 'RICARDO-ISAIAS PEREZ BALLARIN',
+  'E81458556': 'REGISTRADORES MERCANTILES DE MADRID CB',
+  'Q2863001J': 'ILUSTRE COLEGIO NOTARIAL DE MADRID',
+  '46215647E': 'ISABEL ESTAPÉ TOUS',
+  'A78999968': 'IBEREXT SA',
+  'B66928755': 'TAX & ACCOUNTING ADVISORS SL',
+  'B55290985': 'NEW COORDENADA 2017 SL',
+  'B12863874': 'KOOK TIME PRODUCTS SL',
+  'DE323599622': 'JIN HUA RUN XIN DIAN QI YOU XIAN GONG SI',
+  'B90282898': 'PRONA16 SL',
+  'N0254985E': 'SHENZHENSHIFENGXIAOQINSHANGMAOYOUXIANGONGSI',
+  'IT05196290265': 'SHENZHENXINGKONGCHENCHENDIANZISHANGWUYOUXIANGONSI',
+  'N7206754I': 'WENZHOUBAOGELISANITARYWARESCOLTD',
+  'FR24914001128': 'PMDE SHANGHAI BAOJIONG TRADING COMPANY LI',
+  'B15794910': 'ALMACEN CHINO ANTONIO SL',
+  'B67476028': 'ALINTO ESPAÑA SL',
+  '20389929264': 'FRANCISCO INSUA',
+  '20925950565': 'MICHAEL ZAPATA',
+  'IT10891680968': 'SHEN ZHEN SHI JUN YAN KE JI YOU XIAN GONG SI',
+  'N0070234J': 'SHEN ZHEN SHI QI LANG DIAN ZI KE JI YOU XIAN GONG SI',
+  '20186003129': 'ALEJANDRO DALL AVA',
+  'N0077951B': 'EURAKOP UG',
+  'GB344058901': 'SBC EVENTS LIMITED',
+  'N4009427H': 'UTOPIA TOWELS INC',
+  'GB390319985': 'FLIGHT STORY LTD',
+  'CY10435151O': 'ULTIMATE FINTECH MARKETING LIMITED',
+  'GB984125308': 'EUROPEAN RECRUITMENT LTD',
+  '874294918': 'MIRTILLA CONSULTING LLC',
+  'B10463040': 'DISEÑO Y COMERCIALIZACIÓN DE SOFTWARE HARDWARE Y DISPOSITIVOS INALÁMBRICOS SL',
+  'B08882813': 'TECNICAS EN MARCAJE SL',
+  'N7201961E': 'SHENZHENSHIRUICHUANGWANGLUOKEJIYOUXIANGONGSI',
+  'G08906653': 'FUNDACIO BOSCH GIMPERA',
+  'B66827809': 'IEBS CORPORATE SOLUTIONS SL',
+  '26914948A': 'MARIANO PELLICER MOLINA',
+  'N00948671': 'SHENZHEN ZONGTENG COMPUTER CO LTD',
+  '20332955544': 'LUCIANO MAZZOLA',
+  '472051727': 'RAINTANK INC DBA GRAFANA LABS',
+  '611937724': 'TERRASTRUCT',
+  'EU372041694': 'MONDAY COM LTD',
+  '20356922191': 'MARCOS ORTIZ',
+  '20428164025': 'ALEJO SEBASTIAN MILLO',
+  'B85313997': 'CECA MAGÁN ABOGADOS SLP',
+  'B59964049': 'LIFRA SL',
+  'B60690443': 'BABY FRIENDLY COMPANIES SL',
+  'Y7809001D': 'ELKIN EDINSON ZAPATA ZULUAGA',
+  'A28799120': 'CORREOS EXPRESS PAQUETERIA URGENTE SA',
+  'B65750325': 'INOXCROM INTERNACIONALSLU',
+  'N7203958I': 'SHEN ZHEN SHI NAN HONG DA KE JI YOU XIAN GONG SI',
+  'B24728511': 'DISTRIBUIDORA REVOLUTION DE PROGRAMAS INFORMATICOS',
+  'A92508720': 'AGAPEA FACTORY SA',
+  'CHE105833841': 'BÄR & KARRER',
+  'F17652496': 'COSTA BRAVA VERD HOTELS SCCL',
+  'W4003233F': 'DPW-MADRID LLC OFIC DE REPRESENTACIÓN EN ESPAÑA',
+  'B67171710': 'GREENS ARIBAU SL',
+  'B59942110': 'CUATRECASAS GONÇALVES PEREIRA SLP',
+  '29697217': 'HR OASIS - FEDERICO ALONSO',
+  '800.240.4502': 'PHILIPPI PRIETOCARRIZOSA FERRERO DU & URÍA',
+  'DE317616914': 'SHENZHEN DATIAN CHUANGXIN MAOYI YOUXIAN GONGSI',
+  'B66648395': 'SALVAJE BCN SL',
+  'B63756720': 'BLING BLING SL',
+  'B96762166': 'HOTEL SOFIA BARCELONA OPCO SL',
+  'B65061988': 'IMAGE BALLON SL',
+  'LU19647148': 'AMAZON SERVICES EUROPE SARL',
+  '07150313G': 'MARIA TERESA AGULLO SABATINI',
+  '611983257': 'NSV MEDIA LLC',
+  '43.714.203/000152': 'BARCELLOS TUCUNDUVA - ADVOGADOS',
+  'B65248304': 'THE COACHES LEADERSHIP & COACHING SL',
+  'FR38892498205': 'SHENZHENSHICHENGZIDIANZISHANGWUYOUXIANGONGSI',
+  'PL5263441000': 'NAN YANG SHI CHUANG TUO SHANG MAO YOU XIAN',
+  'DE350693570': 'XIANNINGSHIJIUXIDIANZISHANGWUYOUXIANGONGSI',
+  'B18763060': 'AIRE ANCIENT BATHS SL',
+  'A63524235': 'MEDIA MARKT PLAÇA CATALUNYA SA',
+  'B18509778': 'MEGAEXIT SL',
+  'N0050580J': 'SHENZHEN GAOCHENG ELECTRONIC COMMERCE CO LTD',
+  'N7207123F': 'SHENZHEN SHI JIESITEER KEJI YOUXIAN GONGSI',
+  'B86331766': 'MAXI DESCUENTO MARKET SL',
+  'N0021205J': 'CIGNA LIFE INSURANCE COMPANY OF EUROPE SA',
+  'N7203075B': 'SHEN ZHEN SHI BEN FEI MAO YI YOU XIAN GONG SI',
+  'B65744229': 'ADEYAKA BCN SL',
+  'N0246860A': 'SHENZHEN YIBO TRANSPORT FACILITIES CO LTD',
+  'RO17628477': 'SC GESKIMO SRL',
+  'B83916668': 'DELOITTE ABOGADOS Y ASESORES TRIBUTARIOS SLU',
+  'B86591682': 'MYCLOUDDOOR SOLUTIONS SL',
+  'B67752162': 'GREEN LIGHT GO LEADERSHIP & CULTURE SL',
+  'GB365730975': 'FOOTBALLCO MEDIA LIMITED',
+  'GB404947784': 'PF PUBLISHING LTD',
+  'B64009194': 'DONEMIDEES SL',
+  '263008157': 'BAMBOOHR LLC',
+  '462843087': 'FIGMA INC',
+  '364819215': 'POSTMAN INC',
+  '112239919': 'EXPO AND CONVENTION CENTER LLC VENETIAN MEETINGS LAS VEGAS',
+  '650568373': 'EXPO CONVENTION CONTRACTORS INC',
+  'B24708679': 'MYA WIFI SLU',
+  '752364585': 'THE EXPO GROUP INC',
+  'DE341841743': 'SHENZHENSHI ZHUOCHIDIANZISHANGWUYOUXIANGONGSI',
+  '218745490013': 'BONDACOM URUGUAY SRL',
+  'IT03918570981': 'BETTERSHOP SRLS',
+  'B87471678': 'GLOBAL ALUMNI EDUCATION SL',
+  'B87910865': 'VIAJES MADRID TRANSFER 2025 SL',
+  '77.332.8277': 'BAY-SCHMITH SPA',
+  '807016183': 'WEBMONITORING TECHNOLOGIES INC',
+  '04222576Y': 'ALVARO ALCAIDE GARCIA',
+  'IT01235870316': 'SHENZHENSHISHANZHI WANGLUOKEJI YOUXIAN GONGSI',
+  'PL5263349636': 'SHENZHEN ZHONGJIEWEI TECHNOLOGY CO LTD',
+  'PL5263402307': 'SHENZHENSHI GANGGANG KEJI YOUXIANGONGSI',
+  'B06600035': 'ELECTRÓNICA REY SL',
+  'A59053355': 'GESDOCUMENT Y GESTIÓN SA',
+  'B96054184': 'DULCES CAHS VALENCIANA',
+  'IT01219750310': 'SHANG HAI JIAO YING MAO YI YOU XIAN GONG SI',
+  'B61774154': 'SII CONCATEL SL',
+  'B83520155': 'FRONDA CENTROS DE JARDINERÍA SL',
+  '02666530W': 'RICARDO SEVILLA ESTEBAN',
+  'B42809582': 'DANLYCE SL',
+  'A65445033': 'HOLALUZ-CLIDOM SA',
+  '870750830': 'FERN EXPOSITION SERVICES LLC',
+  'CY10433361M': 'ANTIGUO-FINANCE MAGNATES PUBLISHING LIMITED',
+  'NO994812564MVA': 'ELASTICSEARCH AS',
+  '23375868199': 'LUCAS GEREMIAS REYERO',
+  '133036195': 'JACOB K JAVITS CONVENTION CENTER',
+  '20200271069': 'JUAN PABLO GONZALEZ',
+  '44436204C': 'SHEILA BLANCO BRAÑUELAS',
+  '20393786311': 'JUAN FRANCISCO GANCIA BEHLER',
+  '20937522429': 'OSCAR HUAMAN MOLINA',
+  '20411963196': 'STEFANO TOMAS D\'ALESSANDRO',
+  '20275105792': 'SERGIO CESAR ERRIGO',
+  '20356307152': 'PABLO MATWIJISZYN',
+  '23398103319': 'ULISES ANGEL FLORES',
+  '20380794749': 'PABLO BASCONES BUSCH',
+  '20405351006': 'MATIAS JULIAN VALDEZ NARDI',
+  '27379962063': 'IRINA CENTENO',
+  '20351722550': 'JUAN IGNACIO TONELLI',
+  '27310495455': 'MARIA DE LA PAZ ODONE',
+  '20410647509': 'GUIDO EZEQUIEL CONTENTO',
+  '20347124886': 'DENIS LEONEL PEDEMONTE',
+  '27946584040': 'CLAUDIA CAROLINA JARA CACERES',
+  '27959980131': 'NORVELIS YERLING TELLERIA CALDERIN',
+  '20426470145': 'ALAN GUILLERMO MICHELIN LA VALLE',
+  '27263594857': 'ROMINA PAULA IFRAN',
+  'A88269972': 'OUIGO ESPAÑA SAU',
+  'EU372027263': 'ACAMS LLC',
+  'B84953397': 'SUCCESSFUL SPANISH TRANSLATORS SL',
+  'N0077916E': 'SHENZHENGSHIXUNFEIDASHUJUJISHUYOUXIANGONGSI',
+  'B65932451': 'THE WHITE FLATS SL',
+  'B39540760': 'REPSOL COMERCIALIZADORA DE ELECTRICIDAD Y GAS SLU',
+  'N0186600C': 'AMAZON BUSINESS EU SÀRL',
+  'A83052407': 'SOCIEDAD ESTATAL CORREOS Y TELÉGRAFOS SA',
+  'A46103834': 'MERCADONA SA',
+  'B82140633': 'WORTEN ESPAÑA DISTRIBUCIÓN SL',
+  '03903771G': 'GUILLERMO CIRIZA QUESADA',
+  '91350302MA34QRPJ6Y': 'BEIJINGGUOJIANZHONGCAIKEJIYOUXIANGONGSIPUTIANFENGONGSI',
+  'ESN0078079A': 'TOYSTORE SRLS',
+  'ESN0070783F': 'HUIZHOU YILI INFORMATION-LIULIANG',
+  '215296290018': 'MARCO NOIRE SA',
+  '211268830019': 'ESPALTER MASOLLER HAROLDO JOSÉ PORRAS FUICA BERNARDO JOSÉ Y OTROS',
+  '444444444': 'GO DADDY',
+  '900.461.7586': 'Pago Digital Colombia SAS',
+  '901.296.4209': 'Pretailers SAS',
+  '76.416.6590': 'PayRetailers Chile Spa (EX Paygol)',
+  '472525194': 'README IO CO',
+  'N0023908G': 'SBC EVENTS LTD',
+  '834289724': 'SPORT GLOBAL USA INC',
+  'GB782291021': 'ONETRUST TECHNOLOGY LIMITED',
+  '20557108646': 'MICHAEL PAGE INTERNATIONAL PER',
+  'EU724002894': 'MOODLE',
+  '15665732000178': 'LOVAZ PUBLICIDADE LTDA',
+  '9015937586': 'INFINITY CLOUD SAS',
+  '60613478/000119': 'PINHEIRO NETO ADVOGADOS',
+  '473784443': 'CHAINALYSIS INC',
+  '593633576': 'THREE FIVE TWO INC',
+  '352680471': 'ATTENDOPEDIA INC',
+  'GB317832693': 'FORTEM RETAILING LTD',
+  '941045401': 'NOTION LABS INC',
+  '5258483': 'IUPANA LLC',
+  '12162637F': 'FORTEM WHITE LABEL INC',
+  'EU372001951': 'ATLASSIAN PTY LTD',
+  '20509289931': 'REBAZA&ALCAZAR ABOGADOS',
+  '9006555838': 'ESCADA FINANCIAL CORP',
+  '9000956484': 'NOVA MAR DEVELOPMENT SA',
+  'EU372008134': 'MAILCHIMP/GROUP LLC',
+  '00011122T': 'ASAMBLO LLC',
+  'GB806645621': 'INTERGAME LIMITED',
+  'GB150258336': 'BARKER BROOKS',
+  '155625840220': 'GRACIELA BOCCHI',
+  'GB6462608067': 'FINANCEFEEDS LIMITED',
+  'EU372022452': 'GODADDY EUROPE LIMITED',
+  'GB171783391': 'GLOBAL BRANDS MAGAZINE',
+  'EU372017645': 'FASTSPRING',
+  '24636523G': 'FRANCO YOSHIYASU E MAIA SOC',
+  'GB08132464': 'FT BUSINESS CONSULTANTS LTD',
+  '20198015241': 'DOIST INC',
+  'EU826002156': 'BLUESNAP INC',
+  'GB391313073': 'ORACLE CORPORATION UK LIMITED',
+  'EU203000373': 'SEMRUSH INC',
+  'GB898602668': 'EVENTGUIDES LTD',
+  'GB13460844': 'PAN FINANCE PF PUBLISHING LTD',
+  '202021810859': 'GLOBAL MESSAGE LLC',
+  '777379140RT000': 'MERCHANT FRAUD JOURNAL',
+  'GB13057684': 'IBET DIGITAL LTD',
+  '5221562': 'INTRALINKS INC',
+  'GB332111854': 'RP PARTNERS LIMITED',
+  'GB239311810': 'DISRUPTS MEDIA LIMITED',
+  'GB011080313': 'SIFTED LIMITED',
+  'GB260281134': 'MILK & HONEY PR LLP',
+  'GB782724994': 'WHITESPACE EXHIBITIONS LTD',
+  '9012997769': 'LOS CREATIVOS SAS',
+  'GB992451200': 'ICS-DITAL LLP',
+  '43851246': 'ASCENTIAL INC',
+  'GB486400442': 'ASCENTIAL EVENTS EUROPE LIMI',
+  'GB843845601': 'IGAMING BUSINESS',
+  '9004050462': 'TRIARIO SAS',
+  'GB00834942L': 'SUGARCANE CAPITAL LIMITED',
+  'GB848480002': 'FINNET LIMITED',
+  '33715928359': 'ASAMBLO SAS',
+  '611648780': 'ZOOM VIDEO COMMUNIATIONS INC',
+  'GB6935528011': 'FINOVATE CAPITAL PARTNERS',
+  'GB301217564': 'IBS INTELLIGENCE LTD',
+  '37819535Z': 'PAY SPACE LLC',
+  'CY10301365E': 'HOSTINGER INTERNATIONAL LTD',
+  'CY10376641T': 'CONTENTWORKS AGENCY LTD',
+  'CY10362046H': 'PANGEA TRANSLATION SERVICES C',
+  'CY10391698Z': 'ULTIMATE FINTECH PTE LTD',
+  '217524950013': 'MARIA MARTA DUTRA DA SILVEIRA SOARES',
+  'B64468523': 'PUNTO PROPERTIES SLU',
+  'N7401476B': 'ISTACK CONFERENCES LTD',
+  '91350302Y': 'BEIJINGGUOJIANZHONGCAIKEJI',
+  'B97659379': 'NETLOGISTICA SL',
+  'B62885801': 'URRETXU',
+  'IE3223102GH': 'SURVEYMONKEY EUROPE UNLIMITED COMPANY',
+  'A48265169': 'BANCO BILBAO VIZCAYA ARGENTARI',
+  'DE339674880': 'EGODITOR GMBH',
+  'B82837782': 'UBIQUS SPAIN SLU',
+  'B65770463': 'EMMARCADORS DE GRACIA SL',
+  'B95907663': 'BERRIPROCESS AGILITY SL',
+  'A84231620': 'IBERENT TECHNOLOGY SA',
+  'B63215792': 'NEWSLINE SL',
+  'EE101746603': 'JOBBATICAL OU',
+  'A79384525': 'ILUNION LIMPIEZA Y MEDIOAMBIENTE SA',
+  '30716029898': 'BOD ABOGADOS SOCIEDADES LEY 19',
+  'B66607896': 'ALSTP INTERNATIONAL ADVICE SER',
+  'N0026943A': 'SHENZHENSHI CHENYINGWANGLUOKEJ',
+  'B54957493': 'AGUACATE PROJECTS SL',
+  'DE239579059': 'SISTRIX',
+  'CZ26502275': 'JET BRAINS SRO',
+  '558327284': 'FIVERR INTERNATIONAL LTD',
+  '40431691Z': 'GONZALO VECIANA GARCIA BOENTE',
+  'A18413302': 'AXESOR CONCER PARA DECIDIR S',
+  'B67269597': 'SABANA LABS SL',
+  'B87527115': 'METRICOOL SOFTWARE SL',
+  'B83411652': 'ADEVINTA SPAIN SL',
+  '48196980C': 'JULIA MAS CANALS',
+  '218383540017': 'ANDREINA PRINZO ROCUMPAJ',
+  '217224030016': 'SANDRA ISABEL GARIN',
+  'B06793301': 'VEGA 2018 SL',
+  'B07548696': 'BARCELO ARRENDAMIENTOS HOTELER',
+  'B83230870': 'ZESAURO TRADUCCIONES SL',
+  'B60653417': 'ELECTRODOMESTICS FJ MARTI SL',
+  'B13578315': 'FELIXMANIA SL',
+  'B08155236': 'INMOBILIARIA Y PROYECTOS SL',
+  'B01548569': 'HOTELAMA SL',
+  'IE3508218NH': 'SHUTTERSTOCK IRELAND LTD',
+  'B64451123': 'AGOSTO ESQUIMAL SL',
+  'N7061281G': 'TOWNX PTE LTD',
+  'A28647451': 'MAKRO AUTOSERVICIO MAYORISTA',
+  'DE341830206': 'XINGTAIYUBINDIANZISHAN'
+};
+
+const fileQueue = [];
+const results = [];
+
+const dropZone = document.getElementById('drop-zone');
+const fileInput = document.getElementById('file-input');
+
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('drag-over');
+  Array.from(e.dataTransfer.files).filter(f => f.type === 'application/pdf').forEach(addToQueue);
+});
+fileInput.addEventListener('change', () => {
+  Array.from(fileInput.files).forEach(addToQueue);
+  fileInput.value = '';
+});
+
+function toggleKey() {
+  const inp = document.getElementById('apikey-input');
+  inp.type = inp.type === 'password' ? 'text' : 'password';
+}
+
+function addToQueue(file) {
+  if (fileQueue.find(f => f.file.name === file.name)) return;
+  fileQueue.push({ file, status: 'pending', id: Date.now() + Math.random() });
+  renderQueue();
+  document.getElementById('btn-process').classList.add('visible');
+}
+
+function renderQueue() {
+  const list = document.getElementById('queue-list');
+  if (!fileQueue.length) {
+    list.innerHTML = '<div style="font-size:10px;color:#444;text-align:center;padding:16px 0;">Sin archivos todavía</div>';
+    return;
+  }
+  list.innerHTML = fileQueue.map(e => `
+    <div class="queue-item ${e.status}">
+      <span class="queue-item-name" title="${e.file.name}">📄 ${e.file.name}</span>
+      <span class="queue-badge ${e.status}">${
+        e.status === 'pending' ? 'Pendiente' :
+        e.status === 'processing' ? '...' :
+        e.status === 'done' ? '✓' : '✗'
+      }</span>
+    </div>`).join('');
+}
+
+async function processAll() {
+  const apiKey = document.getElementById('apikey-input').value.trim();
+  if (!apiKey) { alert('Introduce tu Mistral API Key antes de procesar.'); return; }
+
+  const btn = document.getElementById('btn-process');
+  btn.disabled = true;
+  btn.textContent = 'Procesando...';
+
+  for (const entry of fileQueue.filter(e => e.status === 'pending')) {
+    entry.status = 'processing';
+    renderQueue();
+    addProcessingRow(entry);
+    try {
+      const base64 = await fileToBase64(entry.file);
+      const data = await extractWithMistral(base64, entry.file.name, apiKey);
+      data.primer_numero = entry.file.name.match(/^(\d+)/)?.[1] || data.primer_numero;
+      entry.status = 'done';
+      updateRow(entry, data);
+      results.push({ file: entry.file.name, ...data });
+    } catch (err) {
+      console.error('FACTURA ERROR:', err, err.stack);
+      entry.status = 'error';
+      updateRowError(entry, err.message || 'Error desconocido - revisa la consola');
+    }
+    renderQueue();
+    updateStats();
+
+    // Small delay between invoices to avoid API rate limiting
+    if (fileQueue.filter(e => e.status === 'pending').length > 0) {
+      await new Promise(r => setTimeout(r, 3000));
+    }
+  }
+
+  btn.disabled = false;
+  btn.textContent = '⚡ Procesar facturas';
+}
+
+function fileToBase64(file) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(r.result.split(',')[1]);
+    r.onerror = rej;
+    r.readAsDataURL(file);
+  });
+}
+
+async function extractWithMistral(base64, filename, apiKey) {
+  console.log('START extractWithMistral:', filename);
+  // Extract text from PDF first using PDF.js
+  const pdfText = await extractPDFText(base64);
+  console.log('PDF text length:', pdfText.length, '| Preview:', pdfText.substring(0, 100));
+
+  const prompt = `Analyze this invoice text and return ONLY a valid JSON object, no extra text, no markdown code blocks.
+IMPORTANT: If the invoice has multiple VAT rates (e.g. 10% and 21%), create one entry per VAT rate in the lineas array. If only one VAT rate, lineas array has one entry.
+The buyer/recipient is always one of these PayRetailers companies: PAYRETAILERS GROUP SLU B72611569, PAYRETAILERS TECHNOLOGIES SLU B72595853, PAYRETAILERS LATAM HOLDINGS SL B72595861, located at Diagonal Avenue 682 08034 Barcelona Spain. CRITICAL: never use B72611569, B72595853 or B72595861 as the supplier CIF - these are always the buyer. The supplier CIF is a DIFFERENT company with a DIFFERENT CIF that appears as the issuer/sender of the invoice.
+JSON structure:
+{"primer_numero":"first number or code at the very top of the document exactly as written",
+"cif_proveedor":"tax ID of the company that ISSUED the invoice (seller). If Spanish use CIF/NIF, if EU use VAT number, if US use EIN. Remove all hyphens. If the CIF matches B72611569 or B72595853 or B72595861 you have the wrong company. No labels, just the code",
+"nombre_proveedor":"ONLY the company name of the ISSUER in UPPERCASE no commas no periods max 60 chars. NOT PayRetailers or any of its subsidiaries",
+"numero_factura":"invoice number",
+"pais":"NAC if Spanish supplier CIF starts with letter+digit, UE if EU country prefix like IE FR DE IT NL BE PT LU AT SE DK FI PL CZ RO HU BG HR SK SI EE LV LT CY MT GR, NO UE if GB US CH AU CA or other non-EU",
+"moneda":"EUR USD etc",
+"fecha_emision":"DD/MM/YYYY",
+"swift":"SWIFT BIC code or empty string",
+"iban":"IBAN or empty string",
+"fecha_vencimiento":"due date DD/MM/YYYY. If not shown use the emission date",
+"detalle":"brief description of service or product max 100 chars",
+"es_nota_credito":"true if credit note credit memo abono or rectificativa. false otherwise",
+"es_no_deducible":"true if non-deductible: food fruit catering restaurants hotels gifts representation. false otherwise",
+"cuota_gestion_laboral":"ONLY for IPAA ABOGADOS invoices: extract the exact euro amount of the line called Cuota Gestion Laboral or Cuota Gestion or similar. This is always a separate line item with its own amount. If not an IPAA invoice or line not found, put empty string","retencion":"retention amount as number or empty string",
+"suplidos":"suplidos or base exenta amount as number or empty string. For notary invoices (Veciana, Notaria) put the Base Exenta amount here",
+"total":"total invoice amount as number",
+"lineas":[{"tipo_iva":"VAT percent e.g. 21. For exenta/exempt lines use 0","base_imponible":"taxable base for THIS specific VAT rate only (NOT the total invoice base). Look for the tax breakdown table (Analisis de Impuesto, desglose IVA) and use the Base Imponible per VAT rate. For example if 21% applies to 92.64 and 0% applies to 604.44, create two lineas with those exact amounts","iva":"VAT amount for this specific rate only","ajuste_iva":"VAT amount if non-deductible else empty string","total_linea":"total for this line = base_imponible + iva for this rate"}]. CRITICAL: each linea must only contain the base and IVA for its own tax rate. Never put the total invoice base in one linea. If invoice shows tax analysis by rate, use those exact figures.
+"confianza":0-100}
+If any field not available use empty string. Reply ONLY with the JSON.
+INVOICE TEXT: ` + pdfText.substring(0, 6000);
+
+  const response = await fetch('https://api.mistral.ai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`
+    },
+    body: JSON.stringify({
+      model: 'mistral-small-latest',
+      temperature: 0.1,
+      max_tokens: 1024,
+      messages: [{ role: 'user', content: prompt }]
+    })
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.message || err.error?.message || `Error ${response.status}`);
+  }
+
+  const data = await response.json();
+  const text = data.choices?.[0]?.message?.content || '';
+  if (!text) throw new Error('Respuesta vacia de Mistral');
+
+  const clean = text.replace(/```json|```/g, '').trim();
+  const jsonMatch = clean.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) throw new Error('Sin JSON: ' + clean.substring(0, 80));
+
+  let parsed;
+  try {
+    parsed = JSON.parse(jsonMatch[0]);
+  } catch(e) {
+    throw new Error('JSON invalido: ' + clean.substring(0, 80));
+  }
+
+  // HARD RULE: PayRetailers companies are NEVER the supplier - always the buyer
+  const payretailersCIFs = ['B72611569', 'B72595853', 'B72595861'];
+  const payretailersNames = ['PAYRETAILERS GROUP', 'PAYRETAILERS TECHNOLOGIES', 'PAYRETAILERS LATAM', 'PAY RETAILERS'];
+  const cifIsPayRetailers = payretailersCIFs.includes((parsed.cif_proveedor || '').toUpperCase().replace(/[-\s]/g, ''));
+  const nameIsPayRetailers = payretailersNames.some(n => (parsed.nombre_proveedor || '').toUpperCase().includes(n));
+  if (cifIsPayRetailers || nameIsPayRetailers) {
+    // Try to find the real supplier in our ERP database using any other CIF found
+    // by scanning all known CIFs that are NOT PayRetailers
+    let foundSupplier = false;
+    for (const [cif, name] of Object.entries(SUPPLIER_NAMES)) {
+      if (!payretailersCIFs.includes(cif) && 
+          !payretailersNames.some(n => name.toUpperCase().includes(n))) {
+        // Don't auto-assign - just clear the wrong data
+        foundSupplier = false;
+        break;
+      }
+    }
+    parsed.cif_proveedor = '';
+    parsed.nombre_proveedor = 'PROVEEDOR NO IDENTIFICADO - REVISAR';
+  }
+
+  // Remove hyphens and spaces from CIF
+  if (parsed.cif_proveedor) {
+    parsed.cif_proveedor = parsed.cif_proveedor.replace(/[-\s]/g, '');
+  }
+
+  // Look up supplier name from ERP database
+  if (parsed.cif_proveedor) {
+    const cifKey = parsed.cif_proveedor.replace(/[-\s]/g, '').toUpperCase();
+    if (SUPPLIER_NAMES[cifKey]) {
+      parsed.nombre_proveedor = SUPPLIER_NAMES[cifKey];
+    }
+  }
+
+  // Fallback: if no fecha_vencimiento use fecha_emision
+  if (!parsed.fecha_vencimiento && parsed.fecha_emision) {
+    parsed.fecha_vencimiento = parsed.fecha_emision;
+  }
+
+  // CREDIT NOTE: negate all amounts
+  if (parsed.es_nota_credito === 'true' || parsed.es_nota_credito === true) {
+    const negate = (v) => {
+      const n = parseFloat(v);
+      if (isNaN(n) || !v) return v;
+      return n > 0 ? String(-n) : String(n);
+    };
+    parsed.base_imponible = negate(parsed.base_imponible);
+    parsed.iva = negate(parsed.iva);
+    parsed.total = negate(parsed.total);
+    parsed.ajuste_iva = negate(parsed.ajuste_iva);
+    parsed.retencion = negate(parsed.retencion);
+    if (parsed.lineas) {
+      parsed.lineas = parsed.lineas.map(l => ({
+        ...l,
+        base_imponible: negate(l.base_imponible),
+        iva: negate(l.iva),
+        ajuste_iva: negate(l.ajuste_iva)
+      }));
+    }
+  }
+
+  // SPECIFIC COMPANY RULES
+  const nombreUpper = (parsed.nombre_proveedor || '').toUpperCase();
+
+  // ARVAL: always 10.5% deductible + 10.5% non-deductible (renting)
+  if (nombreUpper.includes('ARVAL')) {
+    const base = parseFloat(parsed.base_imponible) || 0;
+    const halfBase = (base / 2).toFixed(2);
+    const ivaAmount = (base * 0.105).toFixed(2);
+    const halfIva = (base / 2 * 0.105).toFixed(2);
+    parsed.lineas = [
+      { tipo_iva: '10.5', base_imponible: halfBase, iva: halfIva, ajuste_iva: '' },
+      { tipo_iva: '0', base_imponible: halfBase, iva: '', ajuste_iva: halfIva }
+    ];
+    parsed.es_no_deducible = false;
+  }
+
+  // PAYRETAILERS ARG: apply 10% retention
+  if (nombreUpper.includes('PAYRETAILERS ARG')) {
+    const total = parseFloat(parsed.total) || 0;
+    parsed.retencion = (total * 0.10).toFixed(2);
+  }
+
+  // GONZALO VECIANA: special notary invoice handling
+  if (nombreUpper.includes('VECIANA')) {
+    const baseIva = parseFloat(parsed.base_imponible) || 0;
+    const baseExenta = parseFloat(parsed.suplidos) || 0; // base exenta comes as suplidos
+    
+    // Try to get base exenta from the parsed data
+    // The AI should have put base exenta somewhere - check detalle or extract from total
+    const totalFactura = parseFloat(parsed.total) || 0;
+    const ivaAmount = parseFloat(parsed.lineas?.[0]?.iva || parsed.iva) || 0;
+    const retencion = parseFloat(parsed.retencion) || 0;
+    
+    // Recalculate base IVA from what AI extracted
+    const bIva = parseFloat(parsed.lineas?.[0]?.base_imponible || parsed.base_imponible) || 0;
+    const bExenta = parseFloat(parsed.suplidos) || 0;
+    
+    if (bExenta > 0) {
+      // Two lines: one with IVA 21% + retention, one for base exenta
+      parsed.lineas = [
+        {
+          tipo_iva: '21',
+          base_imponible: String(bIva),
+          iva: String(Math.round(bIva * 0.21 * 100) / 100),
+          ajuste_iva: ''
+        },
+        {
+          tipo_iva: '0',
+          base_imponible: String(bExenta),
+          iva: '',
+          ajuste_iva: ''
+        }
+      ];
+      parsed.suplidos = String(bExenta);
+      parsed.retencion = String(Math.abs(retencion) > 0 ? Math.abs(retencion) : Math.round(bIva * 0.15 * 100) / 100);
+    } else {
+      // Single line: 21% IVA + retention on base IVA
+      parsed.lineas = [{
+        tipo_iva: '21',
+        base_imponible: String(bIva),
+        iva: String(Math.round(bIva * 0.21 * 100) / 100),
+        ajuste_iva: ''
+      }];
+      parsed.retencion = String(Math.abs(retencion) > 0 ? Math.abs(retencion) : Math.round(bIva * 0.15 * 100) / 100);
+    }
+  }
+
+  // IPAA ABOGADOS: split Cuota Gestion Laboral into separate line
+  if (nombreUpper.includes('IPAA')) {
+    const totalBase = parseFloat(parsed.lineas?.[0]?.base_imponible || parsed.base_imponible) || 0;
+    const tipoIva = parsed.lineas?.[0]?.tipo_iva || parsed.tipo_iva || '21';
+    const cuotaGestion = parseFloat(parsed.cuota_gestion_laboral) || 0;
+    if (cuotaGestion > 0 && totalBase > cuotaGestion) {
+      const restoBase = Math.round((totalBase - cuotaGestion) * 100) / 100;
+      const ivaRate = parseFloat(tipoIva) / 100;
+      parsed.lineas = [
+        { tipo_iva: tipoIva, base_imponible: String(cuotaGestion), iva: String(Math.round(cuotaGestion * ivaRate * 100) / 100), ajuste_iva: '' },
+        { tipo_iva: tipoIva, base_imponible: String(restoBase), iva: String(Math.round(restoBase * ivaRate * 100) / 100), ajuste_iva: '' }
+      ];
+    }
+  }
+
+  if (nombreUpper.includes('SAVILLS')) {
+    parsed.es_no_deducible = false;
+    if (parsed.lineas) {
+      parsed.lineas = parsed.lineas.map(l => ({ ...l, ajuste_iva: '' }));
+    } else {
+      parsed.ajuste_iva = '';
+    }
+  }
+
+  // Fix tipo_iva: only recalculate for Spanish suppliers (CIF starts with letter, no country prefix)
+  const isSpanish = /^[A-Z]\d/.test((parsed.cif_proveedor || '').toUpperCase());
+  if (isSpanish) {
+    if (parsed.lineas && parsed.lineas.length > 0) {
+      parsed.lineas = parsed.lineas.map(l => {
+        const base = parseFloat(l.base_imponible);
+        const iva = parseFloat(l.iva);
+        if (!isNaN(base) && !isNaN(iva) && iva > 0 && base > 0) {
+          const calculated = Math.round((iva / base) * 100);
+          if ([4, 10, 21].includes(calculated) && (l.tipo_iva === '0' || l.tipo_iva === 0 || !l.tipo_iva)) {
+            l.tipo_iva = String(calculated);
+          }
+        }
+        return l;
+      });
+    } else {
+      const base = parseFloat(parsed.base_imponible);
+      const iva = parseFloat(parsed.iva);
+      if (!isNaN(base) && !isNaN(iva) && iva > 0 && base > 0) {
+        const calculated = Math.round((iva / base) * 100);
+        if ([4, 10, 21].includes(calculated) && (parsed.tipo_iva === '0' || parsed.tipo_iva === 0 || !parsed.tipo_iva)) {
+          parsed.tipo_iva = String(calculated);
+        }
+      }
+    }
+  } else {
+    // Foreign supplier: force tipo_iva to 0 if no IVA amount
+    const ivaAmount = parseFloat(parsed.iva);
+    if (isNaN(ivaAmount) || ivaAmount === 0) {
+      parsed.tipo_iva = '0';
+      parsed.iva = '';
+    }
+  }
+
+  // Fix non-deductible: move IVA to ajuste_iva and set tipo_iva to 0
+  if (parsed.es_no_deducible === 'true' || parsed.es_no_deducible === true) {
+    if (parsed.lineas && parsed.lineas.length > 0) {
+      parsed.lineas = parsed.lineas.map(l => ({
+        ...l,
+        ajuste_iva: l.iva || l.ajuste_iva,
+        tipo_iva: '0',
+        iva: ''
+      }));
+    } else {
+      parsed.ajuste_iva = parsed.iva || parsed.ajuste_iva;
+      parsed.tipo_iva = '0';
+      parsed.iva = '';
+    }
+  }
+
+  return parsed;
+}
+
+async function extractPDFText(base64) {
+  return new Promise((resolve) => {
+    // Use PDF.js from unpkg CDN
+    const script = document.getElementById('pdfjs-script');
+    if (script && window.pdfjsLib) {
+      doParse(resolve);
+    } else {
+      const s = document.createElement('script');
+      s.id = 'pdfjs-script';
+      s.src = 'https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.min.js';
+      s.onload = () => {
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+        doParse(resolve);
+      };
+      s.onerror = () => resolve('PDF text extraction failed');
+      document.head.appendChild(s);
+    }
+  });
+
+  async function doParse(resolve) {
+    try {
+      const bin = atob(base64);
+      const arr = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+      const pdf = await window.pdfjsLib.getDocument({ data: arr }).promise;
+      let text = '';
+      for (let i = 1; i <= Math.min(pdf.numPages, 4); i++) {
+        const page = await pdf.getPage(i);
+        const tc = await page.getTextContent();
+        text += tc.items.map(x => x.str).join(' ') + '\n';
+      }
+      resolve(text.trim() || 'No text found in PDF');
+    } catch(e) {
+      resolve('PDF parse error: ' + e.message);
+    }
+  }
+}
+
+function addProcessingRow(entry) {
+  document.getElementById('empty-state').style.display = 'none';
+  document.getElementById('results-section').classList.add('visible');
+  const tr = document.createElement('tr');
+  tr.id = `row-${entry.id}`;
+  tr.classList.add('processing-row');
+  tr.innerHTML = `<td>—</td><td colspan="16" class="pulse" style="color:#888;font-size:11px;">Extrayendo texto y analizando...</td><td></td>`;
+  document.getElementById('results-tbody').appendChild(tr);
+}
+
+function updateRow(entry, d) {
+  const tr = document.getElementById(`row-${entry.id}`);
+  if (!tr) return;
+  const conf = parseInt(d.confianza) || 0;
+  const confColor = conf >= 80 ? '#2a7a4b' : conf >= 60 ? '#c87a2f' : '#c84b2f';
+  tr.classList.remove('processing-row');
+
+  let lineas = (d.lineas && d.lineas.length > 0) ? d.lineas : [{
+    tipo_iva: d.tipo_iva, base_imponible: d.base_imponible, iva: d.iva, ajuste_iva: d.ajuste_iva, total_linea: d.total
+  }];
+
+  // Filter and deduplicate
+  lineas = lineas.filter(l => { const b = parseFloat(l.base_imponible); return !isNaN(b) && b !== 0; });
+  const seen = new Set();
+  lineas = lineas.filter(l => { const k = l.tipo_iva+'_'+l.base_imponible; if(seen.has(k)) return false; seen.add(k); return true; });
+  if (lineas.length === 0) lineas = [{ tipo_iva: d.tipo_iva, base_imponible: d.base_imponible, iva: d.iva, ajuste_iva: d.ajuste_iva, total_linea: d.total }];
+
+  // Calculate total per line if not provided
+  lineas = lineas.map(l => {
+    if (!l.total_linea) {
+      const base = parseFloat(l.base_imponible) || 0;
+      const iva = parseFloat(l.iva) || 0;
+      l.total_linea = String(Math.round((base + iva) * 100) / 100);
+    }
+    return l;
+  });
+
+  const badge = (d.es_no_deducible==='true'||d.es_no_deducible===true) ? ' <span style="background:rgba(217,48,37,0.1);color:#d93025;padding:1px 5px;border-radius:3px;font-size:9px;font-weight:700;">NO DED.</span>' : '';
+  const abono = (d.es_nota_credito==='true'||d.es_nota_credito===true) ? ' <span style="background:rgba(7,31,158,0.1);color:#071f9e;padding:1px 5px;border-radius:3px;font-size:9px;font-weight:700;">ABONO</span>' : '';
+  const confHtml = `<div style="display:flex;align-items:center;gap:5px;"><div class="confidence-bar"><div class="confidence-fill" style="width:${conf}%;background:${confColor};"></div></div><span style="font-size:10px;color:${confColor};">${conf}%</span></div>`;
+
+  // Every row gets ALL data - no rowspan, no empty cells
+  function buildRow(l) {
+    return `
+      <td><span class="cell-num">${d.primer_numero || '—'}</span></td>
+      <td>${d.cif_proveedor || '—'}</td>
+      <td>${d.nombre_proveedor || '—'}</td>
+      <td>${d.numero_factura || '—'}</td>
+      <td>${l.tipo_iva !== '' && l.tipo_iva !== undefined ? l.tipo_iva + '%' : '—'}</td>
+      <td class="cell-amount">${l.base_imponible || '—'}</td>
+      <td>${l.iva || '—'}</td>
+      <td>${d.retencion || '—'}</td>
+      <td>${d.suplidos || '—'}</td>
+      <td>${l.ajuste_iva || '—'}</td>
+      <td class="cell-amount"><strong>${l.total_linea || '—'}</strong></td>
+      <td>${d.moneda || '—'}</td>
+      <td>${d.fecha_emision || '—'}</td>
+      <td>${getMesRegistro(d.fecha_emision)}</td>
+      <td>${getMedioPago(d)}</td>
+      <td>${d.swift || '—'}</td>
+      <td>${d.iban || '—'}</td>
+      <td style="color:#d93025;font-weight:700;">NO</td>
+      <td></td>
+      <td></td>
+      <td>${getSemana(d.fecha_vencimiento || d.fecha_emision)}</td>
+      <td>${getAnyo(d.fecha_vencimiento || d.fecha_emision)}</td>
+      <td>${d.fecha_vencimiento || d.fecha_emision || '—'}</td>
+      <td style="color:#d93025;font-weight:700;">NO</td>
+      <td></td>
+      <td style="color:#d93025;font-weight:700;">NO</td>
+      <td></td>
+      <td style="max-width:200px;white-space:normal;font-size:10px;">${(d.detalle||'—')+badge+abono}</td>
+      <td class="cell-file">${entry.file.name}</td>
+      <td>${confHtml}</td>`;
+  }
+
+  tr.innerHTML = buildRow(lineas[0]);
+
+  // Remove any previously added extra rows for this entry
+  let next = tr.nextElementSibling;
+  while (next && next.dataset.parentId === String(entry.id)) {
+    const toRemove = next;
+    next = next.nextElementSibling;
+    toRemove.remove();
+  }
+
+  // Add extra rows
+  for (let i = 1; i < lineas.length; i++) {
+    const extraTr = document.createElement('tr');
+    extraTr.dataset.parentId = String(entry.id);
+    extraTr.innerHTML = buildRow(lineas[i]);
+    tr.insertAdjacentElement('afterend', extraTr);
+  }
+}
+
+function updateRowError(entry, msg) {
+  const tr = document.getElementById(`row-${entry.id}`);
+  if (!tr) return;
+  tr.classList.remove('processing-row');
+  tr.innerHTML = `<td>—</td><td class="cell-file">${entry.file.name}</td><td colspan="15" style="color:#c84b2f;font-size:11px;">Error: ${msg}</td><td></td>`;
+}
+
+function updateStats() {
+  document.getElementById('stat-total').textContent = results.length;
+  const totals = results.map(r => parseFloat(r.total)).filter(n => !isNaN(n));
+  if (totals.length) {
+    const sum = totals.reduce((a, b) => a + b, 0);
+    document.getElementById('stat-amount').textContent =
+      sum.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+  }
+}
+
+function getSemana(fecha) {
+  if (!fecha) return '';
+  const parts = fecha.split('/');
+  if (parts.length !== 3) return '';
+  const d = new Date(parseInt(parts[2]), parseInt(parts[1])-1, parseInt(parts[0]));
+  const startOfYear = new Date(d.getFullYear(), 0, 1);
+  return String(Math.ceil(((d - startOfYear) / 86400000 + startOfYear.getDay() + 1) / 7));
+}
+
+function getAnyo(fecha) {
+  if (!fecha) return '';
+  const parts = fecha.split('/');
+  return parts.length === 3 ? parts[2] : '';
+}
+
+function resetAll() {
+  fileQueue.length = 0;
+  results.length = 0;
+  document.getElementById('results-tbody').innerHTML = '';
+  document.getElementById('results-section').classList.remove('visible');
+  document.getElementById('empty-state').style.display = '';
+  document.getElementById('btn-process').classList.remove('visible');
+  document.getElementById('stat-total').textContent = '0';
+  document.getElementById('stat-amount').textContent = '—';
+  renderQueue();
+}
+
+function getMesRegistro(fecha) {
+  if (!fecha) return '—';
+  const parts = fecha.split('/');
+  if (parts.length === 3) return parts[1]; // DD/MM/YYYY -> MM
+  return '—';
+}
+
+function getMedioPago(d) {
+  const hasBank = (d.iban && d.iban !== '—' && d.iban !== '') || 
+                  (d.swift && d.swift !== '—' && d.swift !== '');
+  return hasBank ? 'TRANSFERENCIA' : '';
+}
+
+function exportCSV() {
+  if (!results.length) return;
+  const headers = ['Nº','CIF Proveedor','Nombre Proveedor','Nº Factura','Tipo IVA','Base Imponible','IVA','Retención','Suplidos','Ajuste IVA','Total Factura','Moneda','Fecha Emisión','Mes Registro','Medio de Pago','SWIFT','IBAN',"Aprobado",'PO Number',"Recurrente",'Semana Pago','Año Pago','Fecha Vencimiento',"Pagado",'Fecha Pago','Contabilizado NetSuite','Cuenta Pago','Detalle'];
+  const rows = [];
+  results.forEach(r => {
+    const lineas = (r.lineas && r.lineas.length > 0) ? r.lineas : [{
+      tipo_iva: r.tipo_iva, base_imponible: r.base_imponible, iva: r.iva, ajuste_iva: r.ajuste_iva
+    }];
+    lineas.forEach(l => {
+      rows.push([
+        r.primer_numero, r.cif_proveedor, r.nombre_proveedor, r.numero_factura,
+        l.tipo_iva, l.base_imponible, l.iva, r.retencion, r.suplidos, l.ajuste_iva,
+        r.total, r.moneda, r.fecha_emision, getMesRegistro(r.fecha_emision), getMedioPago(r), r.swift, r.iban, 'NO', '', '', getSemana(r.fecha_vencimiento || r.fecha_emision), getAnyo(r.fecha_vencimiento || r.fecha_emision), r.fecha_vencimiento || r.fecha_emision, 'NO', '', 'NO', '',
+        r.detalle
+      ].map(v => {
+        const str = (v ?? '').toString();
+        // Replace decimal point with comma for numeric values (Spanish Excel)
+        const formatted = /^\d+\.\d+$/.test(str) ? str.replace('.', ',') : str;
+        return `"${formatted.replace(/"/g, '""')}"`;
+      }).join(';'));
+    });
+  });
+  const csv = [headers.join(';'), ...rows].join('\n');
+  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `facturas_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+}
+
+</script>
+</body>
+</html>
